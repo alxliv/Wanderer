@@ -35,11 +35,12 @@ Status: ✅ decided · 🔵 recommended/default · ⏳ open
 | D28 | Pose estimation | Wheel odometry + IMU dead-reckoning, with occasional camera/landmark correction from the PC | ✅ |
 | D29 | ESP-01S | Reserved as a **future backup low-rate command/telemetry radio** (not the primary link) | 🔵 |
 | D30 | PC inference stack | CUDA on NVIDIA GPU; framework TBD (PyTorch / ONNX Runtime / TensorRT) | ⏳ |
+| D31 | 5 V regulator | **Pololu S13V30F5 (#4082)** buck-boost, 5 V, ~3 A @ 2S, 2.8–22 V in; + 470–1000 µF bulk cap. Holds 5 V across full 2S discharge (resolves O1) | ✅ |
 
 ## Open / to confirm
 
-- **O1 — Buck converter spec.** Need ≥ 3 A at 5 V (Zero + Pico + camera + servo spikes;
-  servos are now the dominant load). Do we have one, and its rating? Else spec in BOM.
+- ~~**O1 — Buck converter spec.**~~ ✅ **RESOLVED (D31):** Pololu S13V30F5 (#4082) buck-boost,
+  5 V ~3 A, + bulk cap. See [hardware/bom.md](../hardware/bom.md).
 - **O2 — Zero 2 W power entry.** 5 V into the GPIO 5V/GND pins (recommended) or via the
   micro-USB power port from the buck?
 - **O3 — Pico I²C bus.** Put the Pico on its own dedicated Zero I²C bus for isolation,

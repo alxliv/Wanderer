@@ -14,9 +14,9 @@ Both packs use 18650 protection boards.
  (11.1V)              ▲
                       │ control (PWM + dir) from Pico
                       │
- Logic pack 2S ──► BUCK (≥3 A) ──► 5 V rail ──┬──► Raspberry Pi Zero 2 W
- (7.4V)                                        ├──► Pan-Tilt servos  (dominant 5 V load)
-                                               └──► Pico (via Zero 5V)
+ Logic pack 2S ──► S13V30F5 (5V) ──► 5 V rail ──┬──► Raspberry Pi Zero 2 W
+ (7.4V)            buck-boost + bulk cap         ├──► Pan-Tilt servos  (dominant 5 V load)
+                                                 └──► Pico (via Zero 5V)
 
  ALL GROUNDS COMMON:  motor pack GND = logic pack GND = L298N GND = Pico GND = Zero GND
 ```
@@ -35,9 +35,12 @@ shared reference the system will misbehave. Single common ground node.
 | Pan-Tilt servos (×2) | ~1–2 W moving | ~10 W stall (brief) — **dominant load** |
 | Pico 2 + sensors | <1 W | ~1 W |
 
-→ **Buck converter target: ≥ 3 A continuous at 5 V** — comfortably covers the Zero, Pico,
-camera, and servo spikes. (The big driver is now the servos, not the SBC.) **OPEN (O1):**
-confirm available buck / rating, else add to BOM.
+→ **5 V regulator: Pololu S13V30F5 (#4082)** — a **buck-boost** 5 V regulator, input 2.8–22 V,
+~3 A continuous at the 2S input voltage (rated 2–4 A depending on input). Chosen over a plain
+buck because the buck-boost **holds 5 V across the entire 2S discharge** (8.4 V → 6 V and below),
+so no end-of-charge brownout; it also has soft-start (gentle Zero boot) plus over-current and
+thermal protection. **Add a 470–1000 µF bulk capacitor** on the 5 V rail near the servos to
+absorb their current spikes. (Resolves **O1**.)
 
 > Switching to the Zero 2 W dropped the SBC's ~25 W worst-case to ~3 W, removing the
 > 5–6 A buck requirement and largely retiring the runtime worry (O4).

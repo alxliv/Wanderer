@@ -39,3 +39,4 @@ Browser ⇄ (HTTP/WebSocket) ⇄ FastAPI + GPU vision (PC) ⇄ (raw TCP/Wi-Fi) �
 - [Plan of work](docs/02-plan.md)
 - [Power budget](hardware/power-budget.md)
 - [Wiring & pinouts](hardware/wiring.md)
+- [Bill of materials](hardware/bom.md)
