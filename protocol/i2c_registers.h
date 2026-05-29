@@ -71,6 +71,7 @@
 #define FT_ENC_RIGHT_ERROR (1u << 4)
 #define FT_OVERCURRENT     (1u << 5) /* reserved/future */
 #define FT_LOW_VOLTAGE     (1u << 6) /* reserved/future */
+#define FT_WATCHDOG        (1u << 7)
 
 /* ---- CONFIG (read/write) 0x40-0x5F ---- */
 #define REG_TICKS_PER_METER 0x40u /* f32 */

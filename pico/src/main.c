@@ -42,12 +42,14 @@ static void load_defaults(void) {
 }
 
 /* Handle self-clearing action flags written by the master. */
-static void handle_control_flags(void) {
+static bool handle_control_flags(void) {
     uint8_t flags = i2cp_get_u8(REG_CONTROL_FLAGS);
+    bool clear_faults = false;
     bool changed = false;
 
     if (flags & FLAG_CLEAR_FAULTS) {
         i2cp_set_u8(REG_FAULT, 0);
+        clear_faults = true;
         flags &= ~FLAG_CLEAR_FAULTS;
         changed = true;
     }
@@ -61,6 +63,8 @@ static void handle_control_flags(void) {
     if (changed) {
         i2cp_set_u8(REG_CONTROL_FLAGS, flags);
     }
+
+    return clear_faults;
 }
 
 int main(void) {
@@ -106,7 +110,22 @@ int main(void) {
         }
 
         /* 3. Self-clearing action flags. */
-        handle_control_flags();
+        bool clear_faults = handle_control_flags();
+
+        /* Watchdog recovery is latched. CLEAR_FAULTS can clear the latch, but
+         * motor output remains disabled until the host explicitly re-enables it
+         * in a later command. */
+        if (watchdog_tripped) {
+            uint8_t flags = i2cp_get_u8(REG_CONTROL_FLAGS);
+            if (flags & FLAG_MOTOR_ENABLE) {
+                i2cp_set_u8(REG_CONTROL_FLAGS, flags & (uint8_t)~FLAG_MOTOR_ENABLE);
+            }
+            if (clear_faults) {
+                watchdog_tripped = false;
+            } else {
+                i2cp_set_u8(REG_FAULT, i2cp_get_u8(REG_FAULT) | FT_WATCHDOG);
+            }
+        }
 
         /* 4. Command watchdog: stop if the tactical host goes quiet. */
         uint8_t wd_10ms = i2cp_get_u8(REG_WATCHDOG_TIMEOUT);
@@ -116,10 +135,11 @@ int main(void) {
                 if (!watchdog_tripped) {
                     watchdog_tripped = true;
                     i2cp_set_u8(REG_CONTROL_MODE, MODE_IDLE);
+                    i2cp_set_u8(REG_CONTROL_FLAGS,
+                                i2cp_get_u8(REG_CONTROL_FLAGS) & (uint8_t)~FLAG_MOTOR_ENABLE);
+                    i2cp_set_u8(REG_FAULT, i2cp_get_u8(REG_FAULT) | FT_WATCHDOG);
                     /* TODO(motors): motors_stop(); */
                 }
-            } else {
-                watchdog_tripped = false; /* master is alive again */
             }
         } else {
             watchdog_tripped = false; /* watchdog disabled */

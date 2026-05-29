@@ -32,8 +32,11 @@ Standard I²C device convention:
 ### Watchdog
 - The watchdog timer is **refreshed on any write to the CONTROL/COMMAND region** (`0x10–0x1F`).
 - If no refresh occurs within `WATCHDOG_TIMEOUT` (units of 10 ms), the Pico forces
-  `CONTROL_MODE → IDLE`, stops the motors, and sets `STATUS.watchdog_tripped`.
-- Recovery: the master resumes writing commands **and** must re-assert `MOTOR_ENABLE`.
+  `CONTROL_MODE → IDLE`, clears `MOTOR_ENABLE`, stops the motors, and latches
+  `STATUS.WATCHDOG_TRIPPED` plus `FAULT.WATCHDOG`.
+- Recovery is explicit: the master must write safe commands, issue `CLEAR_FAULTS`, then
+  re-assert `MOTOR_ENABLE` in a later command. Watchdog recovery is a latched safety stop,
+  not an automatic pause/resume.
 - A `WATCHDOG_TIMEOUT` of 0 disables the watchdog (not recommended).
 
 ---
@@ -104,7 +107,7 @@ Standard I²C device convention:
 | 4 | `ENC_RIGHT_ERROR` | right encoder fault |
 | 5 | `OVERCURRENT` | reserved/future |
 | 6 | `LOW_VOLTAGE` | reserved/future |
-| 7 | reserved | |
+| 7 | `WATCHDOG` | command watchdog timed out; latched until `CLEAR_FAULTS` |
 
 ### CONFIG — read/write (`0x40–0x5F`)
 Online-tunable for R&D. Applied on write-transaction STOP. Defaults baked into firmware.
@@ -132,6 +135,12 @@ Online-tunable for R&D. Applied on write-transaction STOP. Defaults baked into f
 **Control loop (master, e.g. 20–50 Hz):**
 1. Write `CMD_LEFT`, `CMD_RIGHT` (mm/s) — this also refreshes the watchdog.
 2. Read telemetry block `0x20…0x33` in one transaction (status, velocities, encoders, ToF).
+
+**Watchdog recovery after `FAULT.WATCHDOG`:**
+1. Write `CMD_LEFT = 0`, `CMD_RIGHT = 0`, and `CONTROL_FLAGS` with `MOTOR_ENABLE = 0`.
+2. Write `CONTROL_FLAGS = CLEAR_FAULTS`.
+3. After telemetry shows `FAULT.WATCHDOG = 0`, write the desired `CONTROL_MODE` and
+   re-assert `MOTOR_ENABLE`.
 
 **Bring-up / open-loop test:**
 - Set `CONTROL_MODE = DIRECT_PWM`, write `CMD_LEFT/RIGHT` as ±duty to validate wiring
