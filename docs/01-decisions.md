@@ -8,8 +8,8 @@ Status: ✅ decided · 🔵 recommended/default · ⏳ open
 | D1 | Drive type | Differential drive: 2 **front** driven wheels + **rear** caster | ✅ |
 | D2 | Software stack | Custom lightweight stack (not ROS 2) | ✅ |
 | D3 | Base station | Python + FastAPI backend, web UI (HTML/JS) in browser, on Windows PC | ✅ |
-| D4 | PC ↔ Pi 5 link | Raw TCP over Wi-Fi (shared network); NRF24 considered for outdoor range later | ✅ |
-| D5 | Pi 5 language | Mostly Python, some C/C++ allowed | ✅ |
+| D4 | PC ↔ tactical host link | Raw TCP over Wi-Fi (shared network); NRF24 considered for outdoor range later | ✅ |
+| D5 | Tactical host language | Mostly Python on the Zero 2 W, some C/C++ allowed | ✅ |
 | D6 | Pico 2 language | C/C++ only (Pico SDK) | ✅ |
 | D7 | Motor driver | L298N dual H-bridge | ✅ |
 | D8 | Distance sensor | VL53L0X ToF — **start with one, front-facing** | ✅ |
@@ -20,14 +20,14 @@ Status: ✅ decided · 🔵 recommended/default · ⏳ open
 | D13 | Motor power | 3S Li-ion (3× 18650) ≈ 11.1 V nom / 12.6 V full | ✅ |
 | D14 | Logic power | 2S Li-ion (2× 18650) ≈ 7.4 V → buck converter → 5 V rail | ✅ |
 | D15 | Battery protection | 18650 protection boards present on both packs | ✅ |
-| D16 | Common ground | All grounds tied together (both packs, L298N, Pico, Pi 5) | ✅ |
+| D16 | Common ground | All grounds tied together (both packs, motor driver, Pico, Zero 2 W) | ✅ |
 | D17 | Encoder logic voltage | Encoders powered at **3.3 V** (RP2350 GPIO is not 5 V-tolerant) | ✅ |
 | D18 | Pico encoder decode | Quadrature decoded via **PIO** state machines | ✅ |
-| D19 | Pico I²C topology | I²C0 = master (ToF), I²C1 = peripheral (to Pi 5) | ✅ |
+| D19 | Pico I²C topology | I²C0 = master (ToF), I²C1 = peripheral (to Zero 2 W) | ✅ |
 | D20 | Pico power | Powered from the tactical SBC's 5 V rail (now Zero 2 W) | 🔵 |
 | D21 | I²C protocol style | Register-map style command/telemetry interface | 🔵 |
 | D22 | Build order | Start with Phase 2 (Pico firmware) after scaffolding | ✅ |
-| D23 | **Tactical board** | **Raspberry Pi Zero 2 W** replaces the Pi 5 (power/weight/bulk). Same form-factor wins; built-in 2.4 GHz Wi-Fi; ARM64 quad-core | ✅ |
+| D23 | **Tactical board** | **Raspberry Pi Zero 2 W** selected for lower power/weight/bulk; built-in 2.4 GHz Wi-Fi; ARM64 quad-core | ✅ |
 | D24 | **Perception location** | **Off-board on the PC GPU** (Windows 11 + NVIDIA). Robot has no on-board heavy vision | ✅ |
 | D25 | **Vision data path** | Robot sends **periodic JPEG stills** (not video) over TCP; sufficient for people ID / semantics / coarse localization | ✅ |
 | D26 | **Hailo 8L** | **Shelved** — no PCIe/M.2 on the Zero; PC GPU does inference instead | ✅ |
@@ -45,8 +45,8 @@ Status: ✅ decided · 🔵 recommended/default · ⏳ open
   micro-USB power port from the buck?
 - **O3 — Pico I²C bus.** Put the Pico on its own dedicated Zero I²C bus for isolation,
   or share the bus with the IMU + Pan-Tilt HAT? (No address conflict either way.)
-- **O4 — Logic-pack runtime.** Largely resolved by the Zero's low draw; 2S2P remains an
-  easy upgrade if needed.
+- ~~**O4 — Logic-pack runtime.**~~ ✅ **Largely resolved** by the Zero's low draw; 2S2P
+  remains an easy upgrade if testing shows the servo duty cycle needs more capacity.
 - **O5 — ToF XSHUT.** Wire the VL53L0X XSHUT to a Pico GPIO for clean reset/boot control?
   (Recommended even for a single sensor.)
 - **O6 — Still cadence/resolution.** Target frame rate and JPEG resolution for the uploads

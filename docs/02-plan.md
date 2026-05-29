@@ -8,11 +8,11 @@ Phased plan. Each phase is detailed and executed in turn. ✅ done · 🚧 in pr
 - [x] Settle key hardware decisions (driver, sensors, power, IMU, camera)
 - [x] Initialize repo + directory structure
 - [x] Write architecture, decision log, plan, power & wiring docs
-- [ ] Resolve open items O1–O5 (see decision log)
+- [ ] Resolve remaining open items O2, O3, O5, O6 (see decision log)
 
 ## Phase 1 — Hardware definition & wiring ⬜
-- [ ] Finalize BOM (incl. buck converter, wiring, connectors, mounting)
-- [ ] Power architecture: pack configs, buck, distribution, fusing, common ground
+- [ ] Finalize BOM (incl. wiring, connectors, mounting, fuses/e-stop)
+- [ ] Power architecture: pack configs, distribution, fusing, common ground
 - [ ] Wiring & pinout maps: Pico↔L298N, Pico↔encoders, Pico↔ToF, Pico↔Zero 2 W (I²C),
       Zero 2 W↔camera/IMU/Pan-Tilt
 - [ ] Bench-test each subsystem in isolation (motors, encoders, ToF, IMU, link)

@@ -1,7 +1,7 @@
 # Wanderer — Wiring & Pinouts
 
 > Draft. Concrete Pico GPIO numbers are assigned in Phase 2 and reflected here.
-> The counts/roles below are settled; exact pin numbers are TBD.
+> The counts/roles and Pico pin numbers below are assigned; keep them aligned with firmware.
 
 ## Pico 2 (RP2350) GPIO budget
 

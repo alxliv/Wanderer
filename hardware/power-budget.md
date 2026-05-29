@@ -58,14 +58,13 @@ absorb their current spikes. (Resolves **O1**.)
 - Encoder **logic** is powered separately at **3.3 V** (from the Pico), NOT from the
   motor rail — RP2350 GPIO is not 5 V-tolerant.
 
-## Runtime — OPEN (O4, largely resolved)
+## Runtime — Resolved For Prototype (O4)
 With the Zero 2 W the logic-rail draw is small (~1–2 W typical), so the 2S pack should give
 reasonable runtime; the servos' duty cycle is the main variable. 2S2P remains an easy
 upgrade if needed. Motor pack runtime depends on driving duty cycle.
 
 ## To finalize in Phase 1
 - Exact cell capacity (mAh) and resulting runtime estimate.
-- Buck converter part + rating (O1).
 - Fusing / inline protection per rail.
 - Battery monitoring (voltage/current sense) approach for telemetry.
 - Connectors and a main power switch / e-stop.
