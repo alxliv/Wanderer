@@ -71,8 +71,8 @@ int main(void) {
     gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
 #endif
 
-    load_defaults();
     i2cp_init(PI_I2C, PI_SDA_PIN, PI_SCL_PIN, PI_I2C_BAUD, WANDERER_I2C_ADDR);
+    load_defaults();
 
     printf("\nWanderer reflexive layer fw %d.%d  proto %d  i2c addr 0x%02X\n",
            FW_VERSION_MAJOR, FW_VERSION_MINOR,

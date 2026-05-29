@@ -12,9 +12,12 @@ static struct {
     i2c_inst_t *i2c;
     uint8_t mem[WANDERER_REG_SPACE_SIZE];   /* canonical register image */
     uint8_t rdbuf[WANDERER_REG_SPACE_SIZE]; /* snapshot served during a read */
+    uint8_t wrbuf[WANDERER_REG_SPACE_SIZE]; /* staged write transaction */
+    bool    dirty[WANDERER_REG_SPACE_SIZE];
     uint8_t ptr;          /* current register pointer */
     bool    ptr_set;      /* first byte of a write sets the pointer */
     bool    reading;      /* a read snapshot has been taken this transaction */
+    bool    write_dirty;  /* writable bytes staged in this transaction */
     volatile bool cmd_written; /* master wrote CONTROL/COMMAND region */
     volatile bool cfg_written; /* master wrote CONFIG region */
 } s;
@@ -23,6 +26,37 @@ static struct {
  * master; INFO and TELEMETRY are read-only and ignore writes. */
 static inline bool reg_writable(uint8_t a) {
     return (a >= 0x10u && a <= 0x1Fu) || (a >= 0x40u && a <= 0x5Fu);
+}
+
+static void commit_staged_write(void) {
+    if (!s.write_dirty) {
+        return;
+    }
+
+    bool cmd_written = false;
+    bool cfg_written = false;
+
+    for (uint8_t i = 0; i < WANDERER_REG_SPACE_SIZE; i++) {
+        if (!s.dirty[i]) {
+            continue;
+        }
+
+        s.mem[i] = s.wrbuf[i];
+        if (i >= 0x10u && i <= 0x1Fu) {
+            cmd_written = true;
+        } else if (i >= 0x40u && i <= 0x5Fu) {
+            cfg_written = true;
+        }
+        s.dirty[i] = false;
+    }
+
+    if (cmd_written) {
+        s.cmd_written = true;
+    }
+    if (cfg_written) {
+        s.cfg_written = true;
+    }
+    s.write_dirty = false;
 }
 
 /* I2C slave event handler (runs in IRQ context). Implements the
@@ -36,9 +70,9 @@ static void on_i2c_event(i2c_inst_t *i2c, i2c_slave_event_t event) {
             s.ptr_set = true;
         } else {
             if (reg_writable(s.ptr)) {
-                s.mem[s.ptr] = b;
-                if (s.ptr <= 0x1Fu)      s.cmd_written = true; /* >=0x10 implied */
-                else                     s.cfg_written = true;
+                s.wrbuf[s.ptr] = b;
+                s.dirty[s.ptr] = true;
+                s.write_dirty = true;
             }
             s.ptr++;
         }
@@ -55,6 +89,7 @@ static void on_i2c_event(i2c_inst_t *i2c, i2c_slave_event_t event) {
         break;
 
     case I2C_SLAVE_FINISH:      /* STOP or repeated START with new address */
+        commit_staged_write();
         s.ptr_set = false;
         s.reading = false;
         break;
@@ -67,6 +102,15 @@ static void on_i2c_event(i2c_inst_t *i2c, i2c_slave_event_t event) {
 void i2cp_init(i2c_inst_t *i2c, uint sda_pin, uint scl_pin, uint baud, uint8_t addr) {
     s.i2c = i2c;
     memset(s.mem, 0, sizeof s.mem);
+    memset(s.rdbuf, 0, sizeof s.rdbuf);
+    memset(s.wrbuf, 0, sizeof s.wrbuf);
+    memset(s.dirty, 0, sizeof s.dirty);
+    s.ptr = 0;
+    s.ptr_set = false;
+    s.reading = false;
+    s.write_dirty = false;
+    s.cmd_written = false;
+    s.cfg_written = false;
 
     i2c_init(i2c, baud);
     gpio_set_function(sda_pin, GPIO_FUNC_I2C);
