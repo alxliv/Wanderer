@@ -2,7 +2,7 @@
 
 A small model-size R&D platform (hardware + software) for a **semi-autonomous exploration vehicle**.
 
-Wanderer is a differential-drive robot (two driven wheels + front caster) built around a
+Wanderer is a differential-drive robot (two front driven wheels + rear caster) built around a
 three-tier control architecture:
 
 - **Strategic + Perception** — Base station (Windows 11 PC, NVIDIA GPU): high-level control,

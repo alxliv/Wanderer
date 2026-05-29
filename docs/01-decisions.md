@@ -5,7 +5,7 @@ Status: ✅ decided · 🔵 recommended/default · ⏳ open
 
 | # | Topic | Decision | Status |
 |---|-------|----------|--------|
-| D1 | Drive type | Differential drive: 2 driven wheels + front caster | ✅ |
+| D1 | Drive type | Differential drive: 2 **front** driven wheels + **rear** caster | ✅ |
 | D2 | Software stack | Custom lightweight stack (not ROS 2) | ✅ |
 | D3 | Base station | Python + FastAPI backend, web UI (HTML/JS) in browser, on Windows PC | ✅ |
 | D4 | PC ↔ Pi 5 link | Raw TCP over Wi-Fi (shared network); NRF24 considered for outdoor range later | ✅ |
