@@ -1,0 +1,32 @@
+# Build artifacts
+build/
+*.o
+*.elf
+*.uf2
+*.bin
+*.hex
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+
+# Node / web (basestation UI, if used)
+node_modules/
+dist/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs & data
+*.log
+data/
+logs/
