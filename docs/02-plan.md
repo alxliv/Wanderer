@@ -17,14 +17,15 @@ Phased plan. Each phase is detailed and executed in turn. ✅ done · 🚧 in pr
       Pi 5↔camera/Hailo/IMU/Pan-Tilt
 - [ ] Bench-test each subsystem in isolation (motors, encoders, ToF, IMU, link)
 
-## Phase 2 — Reflexive layer (Pico 2) ⬜  ← next focus
-- [ ] Project skeleton (Pico SDK, CMake), blink/UART sanity
+## Phase 2 — Reflexive layer (Pico 2) 🚧  ← current focus
+- [x] I²C register map defined (`protocol/i2c_registers.{md,h}`)
+- [x] Project skeleton (Pico SDK, CMake), UART console + LED heartbeat
+- [x] I²C peripheral interface (I²C1) — full register space, pointer model, watchdog
 - [ ] Motor PWM + direction via L298N
 - [ ] Quadrature encoder reading via PIO → ticks, distance, velocity
 - [ ] Per-wheel closed-loop PID velocity control
 - [ ] VL53L0X ToF reading (I²C0 master)
-- [ ] Safety reflexes: collision auto-stop + command-timeout watchdog
-- [ ] I²C peripheral interface (I²C1) — register map for commands/telemetry
+- [ ] Safety reflexes: command-timeout watchdog (done) + collision auto-stop (with ToF)
 
 ## Phase 3 — Tactical layer (Raspberry Pi 5) ⬜
 - [ ] I²C master driver + command/telemetry protocol (mirror of Phase 2)

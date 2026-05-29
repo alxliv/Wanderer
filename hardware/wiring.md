@@ -5,20 +5,28 @@
 
 ## Pico 2 (RP2350) GPIO budget
 
-~14 of 26 usable GPIO. Comfortable headroom.
+~15 of 26 usable GPIO. Comfortable headroom.
+**Source of truth for pins:** [`pico/src/config.h`](../pico/src/config.h) — keep this table in sync with it.
 
-| Function | Signals | Pins | Notes |
-|----------|---------|------|-------|
-| Motor A (L298N) | ENA (PWM), IN1, IN2 | 3 | ENA on a PWM-capable pin |
-| Motor B (L298N) | ENB (PWM), IN3, IN4 | 3 | ENB on a PWM-capable pin |
-| Encoder A | A, B channels | 2 | quadrature via PIO; 3.3 V logic |
-| Encoder B | A, B channels | 2 | quadrature via PIO; 3.3 V logic |
-| I²C0 (master → ToF) | SDA, SCL | 2 | VL53L0X front sensor |
-| ToF XSHUT (O5) | XSHUT | 1 | optional but recommended |
-| I²C1 (peripheral ← Pi 5) | SDA, SCL | 2 | Pico = I²C slave |
+| Function | Signal | GPIO | Notes |
+|----------|--------|------|-------|
+| Motor A (left) | ENA (PWM) | GP16 | speed |
+| | IN1 | GP17 | direction |
+| | IN2 | GP18 | direction |
+| Motor B (right) | ENB (PWM) | GP19 | speed |
+| | IN3 | GP20 | direction |
+| | IN4 | GP21 | direction |
+| Encoder A (left) | A / B | GP10 / GP11 | consecutive pair for PIO; 3.3 V logic |
+| Encoder B (right) | A / B | GP12 / GP13 | consecutive pair for PIO; 3.3 V logic |
+| I²C0 (master → ToF) | SDA / SCL | GP4 / GP5 | VL53L0X front sensor |
+| ToF XSHUT (O5) | XSHUT | GP8 | optional reset/boot control |
+| I²C1 (peripheral ← Pi 5) | SDA / SCL | GP6 / GP7 | Pico = I²C slave @ 0x42 |
+| UART0 debug | TX / RX | GP0 / GP1 | `printf` console @ 115200 |
 
-PWM: RP2350 has 8 PWM slices / 16 channels — ENA & ENB trivially covered.
-Encoders: decoded by PIO state machines for accurate, CPU-light quadrature counting.
+PWM: RP2350 has 8 PWM slices / 16 channels — ENA (GP16) & ENB (GP19) trivially covered.
+Encoders: decoded by PIO state machines for accurate, CPU-light quadrature counting;
+each encoder's A/B must be a **consecutive GPIO pair** (base pin + 1).
+External **4.7 kΩ pull-ups** recommended on the Pi 5 I²C bus (internal pull-ups are weak).
 
 ## L298N connections
 

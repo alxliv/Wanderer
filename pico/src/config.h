@@ -1,0 +1,58 @@
+/*
+ * Wanderer reflexive layer (Pico 2 / RP2350) - pin map & tunable defaults.
+ *
+ * Pin assignments are the firmware's source of truth; keep hardware/wiring.md
+ * in sync with this file. Calibration/PID defaults below are also exposed over
+ * I2C (CONFIG block) so they can be tuned live without reflashing.
+ */
+#ifndef WANDERER_CONFIG_H
+#define WANDERER_CONFIG_H
+
+#include "hardware/i2c.h"
+
+/* ---- I2C1: peripheral to the Raspberry Pi 5 (Pi 5 = master) ---- */
+#define PI_I2C            i2c1
+#define PI_SDA_PIN        6     /* GP6  (I2C1 SDA) */
+#define PI_SCL_PIN        7     /* GP7  (I2C1 SCL) */
+#define PI_I2C_BAUD       100000 /* 100 kHz default; 400 kHz once validated */
+
+/* ---- I2C0: master to VL53L0X ToF (wired in the ToF step) ---- */
+#define TOF_I2C           i2c0
+#define TOF_SDA_PIN       4     /* GP4  (I2C0 SDA) */
+#define TOF_SCL_PIN       5     /* GP5  (I2C0 SCL) */
+#define TOF_XSHUT_PIN     8     /* GP8  (optional reset/boot control, O5) */
+
+/* ---- L298N motor A (left) ---- */
+#define M_A_ENA_PIN       16    /* PWM (speed)      */
+#define M_A_IN1_PIN       17    /* direction        */
+#define M_A_IN2_PIN       18    /* direction        */
+
+/* ---- L298N motor B (right) ---- */
+#define M_B_ENB_PIN       19    /* PWM (speed)      */
+#define M_B_IN3_PIN       20    /* direction        */
+#define M_B_IN4_PIN       21    /* direction        */
+
+/* ---- Quadrature encoders (3.3 V logic; decoded via PIO) ----
+ * Each encoder uses two CONSECUTIVE GPIO (A on base pin, B on base+1) so a
+ * single PIO state machine can read both channels.
+ */
+#define ENC_A_PIN_BASE    10    /* left:  GP10 (A), GP11 (B) */
+#define ENC_B_PIN_BASE    12    /* right: GP12 (A), GP13 (B) */
+
+/* ---- Control loop ---- */
+#define CONTROL_HZ        100   /* reflexive control-loop rate */
+
+/* ---- Tunable defaults (mirrored into the I2C CONFIG block at boot) ---- */
+#define DEFAULT_TICKS_PER_METER  10000.0f /* PLACEHOLDER - calibrate (Phase 1/2) */
+#define DEFAULT_PID_KP           0.5f
+#define DEFAULT_PID_KI           0.1f
+#define DEFAULT_PID_KD           0.0f
+#define DEFAULT_MAX_PWM          1000      /* per-mille clamp (0..1000) */
+#define DEFAULT_WATCHDOG_10MS    50        /* 50 * 10 ms = 500 ms */
+#define DEFAULT_OBSTACLE_STOP_MM 0         /* disabled until ToF is wired */
+
+/* ---- Firmware version (reported in INFO registers) ---- */
+#define FW_VERSION_MAJOR  0
+#define FW_VERSION_MINOR  1
+
+#endif /* WANDERER_CONFIG_H */
