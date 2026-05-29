@@ -10,7 +10,7 @@
 
 #include "hardware/i2c.h"
 
-/* ---- I2C1: peripheral to the Raspberry Pi 5 (Pi 5 = master) ---- */
+/* ---- I2C1: peripheral to the tactical host / Zero 2 W (host = master) ---- */
 #define PI_I2C            i2c1
 #define PI_SDA_PIN        6     /* GP6  (I2C1 SDA) */
 #define PI_SCL_PIN        7     /* GP7  (I2C1 SCL) */

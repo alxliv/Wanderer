@@ -1,12 +1,12 @@
 /*
- * Wanderer - Pi 5 <-> Pico 2 I2C register map.
+ * Wanderer - tactical-host <-> Pico 2 I2C register map.
  *
  * Single source of truth for the reflexive-tier interface. Mirrors
  * protocol/i2c_registers.md exactly. Included directly by the Pico firmware;
- * the Pi 5 Python side mirrors these constants.
+ * the host's Python side (Raspberry Pi Zero 2 W) mirrors these constants.
  *
  * Pico = I2C peripheral @ 0x42. All multi-byte fields are LITTLE-ENDIAN.
- * Floats are IEEE-754 float32, little-endian (native to RP2350 and the Pi 5).
+ * Floats are IEEE-754 float32, little-endian (native to RP2350 and the host).
  */
 #ifndef WANDERER_I2C_REGISTERS_H
 #define WANDERER_I2C_REGISTERS_H

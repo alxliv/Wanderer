@@ -13,8 +13,8 @@ Status: ✅ decided · 🔵 recommended/default · ⏳ open
 | D6 | Pico 2 language | C/C++ only (Pico SDK) | ✅ |
 | D7 | Motor driver | L298N dual H-bridge | ✅ |
 | D8 | Distance sensor | VL53L0X ToF — **start with one, front-facing** | ✅ |
-| D9 | IMU | Pololu MinIMU-9 v6 (LSM6DSO + LIS3MDL), **mounted on the Pi 5** | ✅ |
-| D10 | Camera | Pi Camera Module 3 + Pan-Tilt HAT (controlled by Pi 5) | ✅ |
+| D9 | IMU | Pololu MinIMU-9 v6 (LSM6DSO + LIS3MDL), mounted on the tactical SBC (now Zero 2 W — see D23) | ✅ |
+| D10 | Camera | Pi Camera Module 3 + Pan-Tilt HAT (now on Zero 2 W via Zero FFC cable — see D23) | ✅ |
 | D11 | Camera video stream | **Deferred** to a later phase | ✅ |
 | D12 | Motors | 2× MD520 (JGB37-520), 12 V, 550 RPM, with quadrature Hall encoders | ✅ |
 | D13 | Motor power | 3S Li-ion (3× 18650) ≈ 11.1 V nom / 12.6 V full | ✅ |
@@ -24,22 +24,32 @@ Status: ✅ decided · 🔵 recommended/default · ⏳ open
 | D17 | Encoder logic voltage | Encoders powered at **3.3 V** (RP2350 GPIO is not 5 V-tolerant) | ✅ |
 | D18 | Pico encoder decode | Quadrature decoded via **PIO** state machines | ✅ |
 | D19 | Pico I²C topology | I²C0 = master (ToF), I²C1 = peripheral (to Pi 5) | ✅ |
-| D20 | Pico power | Powered from the Pi 5's 5 V rail | 🔵 |
+| D20 | Pico power | Powered from the tactical SBC's 5 V rail (now Zero 2 W) | 🔵 |
 | D21 | I²C protocol style | Register-map style command/telemetry interface | 🔵 |
 | D22 | Build order | Start with Phase 2 (Pico firmware) after scaffolding | ✅ |
+| D23 | **Tactical board** | **Raspberry Pi Zero 2 W** replaces the Pi 5 (power/weight/bulk). Same form-factor wins; built-in 2.4 GHz Wi-Fi; ARM64 quad-core | ✅ |
+| D24 | **Perception location** | **Off-board on the PC GPU** (Windows 11 + NVIDIA). Robot has no on-board heavy vision | ✅ |
+| D25 | **Vision data path** | Robot sends **periodic JPEG stills** (not video) over TCP; sufficient for people ID / semantics / coarse localization | ✅ |
+| D26 | **Hailo 8L** | **Shelved** — no PCIe/M.2 on the Zero; PC GPU does inference instead | ✅ |
+| D27 | Autonomy model | "Remote-brain": safety-critical jobs stay local (ToF reflex; odom+IMU pose). No camera-based visual SLAM | ✅ |
+| D28 | Pose estimation | Wheel odometry + IMU dead-reckoning, with occasional camera/landmark correction from the PC | ✅ |
+| D29 | ESP-01S | Reserved as a **future backup low-rate command/telemetry radio** (not the primary link) | 🔵 |
+| D30 | PC inference stack | CUDA on NVIDIA GPU; framework TBD (PyTorch / ONNX Runtime / TensorRT) | ⏳ |
 
 ## Open / to confirm
 
-- **O1 — Buck converter spec.** Need ≥ 5 A (ideally 6 A) at 5 V to cover Pi 5 + Pan-Tilt
-  servos. Do we have one, and what is its rating? Otherwise spec in BOM.
-- **O2 — Pi 5 power entry.** Feed 5 V into the GPIO 5V/GND pins (bypasses USB-C PD,
-  may show low-power warning, quietable via config) **or** via a USB-C cable from the buck?
-- **O3 — Pico Pi-5 I²C bus.** Put the Pico on its own dedicated Pi 5 I²C bus for isolation,
+- **O1 — Buck converter spec.** Need ≥ 3 A at 5 V (Zero + Pico + camera + servo spikes;
+  servos are now the dominant load). Do we have one, and its rating? Else spec in BOM.
+- **O2 — Zero 2 W power entry.** 5 V into the GPIO 5V/GND pins (recommended) or via the
+  micro-USB power port from the buck?
+- **O3 — Pico I²C bus.** Put the Pico on its own dedicated Zero I²C bus for isolation,
   or share the bus with the IMU + Pan-Tilt HAT? (No address conflict either way.)
-- **O4 — Pi 5 logic-pack runtime.** 2S (no parallel) gives limited runtime under
-  Pi 5 + Hailo + servo load. Acceptable to start; future upgrade path is 2S2P.
+- **O4 — Logic-pack runtime.** Largely resolved by the Zero's low draw; 2S2P remains an
+  easy upgrade if needed.
 - **O5 — ToF XSHUT.** Wire the VL53L0X XSHUT to a Pico GPIO for clean reset/boot control?
   (Recommended even for a single sensor.)
+- **O6 — Still cadence/resolution.** Target frame rate and JPEG resolution for the uploads
+  (affects perceived responsiveness and 2.4 GHz Wi-Fi headroom). Defer to Phase 3.
 
 ## Notes on tradeoffs accepted
 
@@ -47,4 +57,5 @@ Status: ✅ decided · 🔵 recommended/default · ⏳ open
   speed. Accepted for prototype.
 - **L298N current limit (~2 A/ch continuous)**: rely on Pico stall/timeout protection;
   avoid prolonged stalls. Accepted for prototype.
-- **L298N onboard 5 V regulator** is too weak (~0.5 A) for the Pi 5 — **not used** for it.
+- **L298N onboard 5 V regulator** is too weak (~0.5 A) for the logic rail — **not used**;
+  the dedicated buck feeds the Zero 2 W and servos.

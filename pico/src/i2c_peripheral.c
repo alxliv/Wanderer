@@ -72,7 +72,7 @@ void i2cp_init(i2c_inst_t *i2c, uint sda_pin, uint scl_pin, uint baud, uint8_t a
     gpio_set_function(sda_pin, GPIO_FUNC_I2C);
     gpio_set_function(scl_pin, GPIO_FUNC_I2C);
     /* Internal pull-ups as a fallback; external ~4.7k pull-ups recommended on
-     * the bus to the Pi 5 (see hardware/wiring.md). */
+     * the bus to the host (see hardware/wiring.md). */
     gpio_pull_up(sda_pin);
     gpio_pull_up(scl_pin);
 

@@ -5,22 +5,29 @@ A small model-size R&D platform (hardware + software) for a **semi-autonomous ex
 Wanderer is a differential-drive robot (two driven wheels + front caster) built around a
 three-tier control architecture:
 
-- **Strategic** — Base station (Windows PC): high-level control, mission planning, telemetry, teleop.
-- **Tactical** — Raspberry Pi 5 + Hailo 8L AI Kit + Pi Camera 3: perception, state estimation, behaviors.
+- **Strategic + Perception** — Base station (Windows 11 PC, NVIDIA GPU): high-level control,
+  mission planning, telemetry, teleop, **and GPU vision inference** on stills sent up by the robot.
+- **Tactical** — Raspberry Pi Zero 2 W + Pi Camera 3 + Pan-Tilt: thin relay — captures periodic
+  stills, state estimation (odometry + IMU), forwards commands to the reflexive layer.
 - **Reflexive** — Raspberry Pi Pico 2 (RP2350): motor control, encoders, distance sensing, safety reflexes.
 
 ```
-Browser  ⇄ (HTTP/WebSocket) ⇄  FastAPI (PC)  ⇄ (raw TCP/Wi-Fi) ⇄  Pi 5  ⇄ (I²C) ⇄  Pico 2  ⇄  motors/sensors
- user                          base station                      tactical          reflexive
+Browser ⇄ (HTTP/WebSocket) ⇄ FastAPI + GPU vision (PC) ⇄ (raw TCP/Wi-Fi) ⇄ Zero 2 W ⇄ (I²C) ⇄ Pico 2 ⇄ motors/sensors
+ user                         base station                                  tactical          reflexive
+                                                          ▲ periodic JPEG stills ┘
 ```
+
+> **Perception runs off-board on the PC GPU** (the robot sends still images "now and then", not video).
+> This is a "remote-brain" design: safety-critical jobs stay local — obstacle stopping on the Pico/ToF,
+> continuous pose from odometry+IMU — so a dropped link still leaves the robot safe.
 
 ## Repository layout
 
 | Path           | Contents                                                        |
 |----------------|-----------------------------------------------------------------|
 | `pico/`        | C/C++ firmware for the Pico 2 (reflexive layer, Pico SDK)       |
-| `rpi5/`        | Python (+ some C/C++) for the Pi 5 (tactical layer)             |
-| `basestation/` | Python FastAPI server + web UI (strategic layer)               |
+| `tactical/`    | Python for the Zero 2 W (tactical relay: stills, odometry, I²C) |
+| `basestation/` | Python FastAPI + web UI + GPU perception (strategic layer)      |
 | `protocol/`    | Shared message / I²C register / TCP protocol definitions        |
 | `hardware/`    | Wiring diagrams, pinouts, BOM, power budget                     |
 | `docs/`        | Architecture, decision log, plan of work                        |

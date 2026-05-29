@@ -13,8 +13,8 @@ Phased plan. Each phase is detailed and executed in turn. ✅ done · 🚧 in pr
 ## Phase 1 — Hardware definition & wiring ⬜
 - [ ] Finalize BOM (incl. buck converter, wiring, connectors, mounting)
 - [ ] Power architecture: pack configs, buck, distribution, fusing, common ground
-- [ ] Wiring & pinout maps: Pico↔L298N, Pico↔encoders, Pico↔ToF, Pico↔Pi 5 (I²C),
-      Pi 5↔camera/Hailo/IMU/Pan-Tilt
+- [ ] Wiring & pinout maps: Pico↔L298N, Pico↔encoders, Pico↔ToF, Pico↔Zero 2 W (I²C),
+      Zero 2 W↔camera/IMU/Pan-Tilt
 - [ ] Bench-test each subsystem in isolation (motors, encoders, ToF, IMU, link)
 
 ## Phase 2 — Reflexive layer (Pico 2) 🚧  ← current focus
@@ -27,24 +27,26 @@ Phased plan. Each phase is detailed and executed in turn. ✅ done · 🚧 in pr
 - [ ] VL53L0X ToF reading (I²C0 master)
 - [ ] Safety reflexes: command-timeout watchdog (done) + collision auto-stop (with ToF)
 
-## Phase 3 — Tactical layer (Raspberry Pi 5) ⬜
+## Phase 3 — Tactical layer (Raspberry Pi Zero 2 W, thin relay) ⬜
+- [ ] PC ↔ Zero TCP protocol definition (`protocol/tcp_messages.*`)
 - [ ] I²C master driver + command/telemetry protocol (mirror of Phase 2)
-- [ ] Camera pipeline + Hailo 8L inference
-- [ ] State estimation (wheel odometry + MinIMU-9 fusion)
+- [ ] Camera pipeline: capture periodic JPEG stills, upload to PC
+- [ ] State estimation (wheel odometry + MinIMU-9 dead-reckoning fusion)
 - [ ] Pan-Tilt control
-- [ ] Local motion behaviors (drive-to-target, obstacle avoidance)
+- [ ] Command relay: translate tactical intent → wheel-velocity targets for the Pico
 - [ ] TCP server + protocol to base station
 
-## Phase 4 — Strategic layer (Base station, Windows) ⬜
-- [ ] FastAPI server + TCP client to Pi 5
-- [ ] Web UI: telemetry dashboard (pose, speed, battery, sensors)
+## Phase 4 — Strategic + Perception (Base station, Windows 11 + NVIDIA GPU) ⬜
+- [ ] FastAPI server + TCP client to the Zero
+- [ ] GPU perception service: inference on uploaded stills (people/object/scene)
+- [ ] Pick inference stack (D30: PyTorch / ONNX Runtime / TensorRT)
+- [ ] Web UI: telemetry dashboard (pose, speed, battery, sensors) + image/detection view
 - [ ] Manual teleoperation / override
 - [ ] Mission / waypoint commanding
 - [ ] Data logging & playback
 
 ## Phase 5 — Integration & autonomy ⬜
 - [ ] End-to-end command + telemetry paths
-- [ ] Mapping / exploration behavior (frontier exploration or light SLAM)
-- [ ] Camera video streaming (deferred from D11)
+- [ ] Exploration behavior (frontier exploration; coarse vision-assisted)
 - [ ] Field testing, tuning, iteration
-- [ ] (Future) NRF24 outdoor link
+- [ ] (Future) ESP-01S / NRF24 backup low-rate radio link

@@ -108,7 +108,7 @@ int main(void) {
         /* 3. Self-clearing action flags. */
         handle_control_flags();
 
-        /* 4. Command watchdog: stop if the Pi 5 goes quiet. */
+        /* 4. Command watchdog: stop if the tactical host goes quiet. */
         uint8_t wd_10ms = i2cp_get_u8(REG_WATCHDOG_TIMEOUT);
         if (wd_10ms != 0) {
             uint32_t timeout_ms = (uint32_t)wd_10ms * 10u;

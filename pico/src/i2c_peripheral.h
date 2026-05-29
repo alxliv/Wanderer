@@ -1,5 +1,5 @@
 /*
- * Wanderer reflexive layer - I2C peripheral (slave) interface to the Pi 5.
+ * Wanderer reflexive layer - I2C peripheral (slave) interface to the tactical host (Zero 2 W).
  *
  * Implements the register-pointer ("memory") access model described in
  * protocol/i2c_registers.md. Owns the backing register image; the main control

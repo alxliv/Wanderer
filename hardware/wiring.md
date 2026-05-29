@@ -20,13 +20,13 @@
 | Encoder B (right) | A / B | GP12 / GP13 | consecutive pair for PIO; 3.3 V logic |
 | I²C0 (master → ToF) | SDA / SCL | GP4 / GP5 | VL53L0X front sensor |
 | ToF XSHUT (O5) | XSHUT | GP8 | optional reset/boot control |
-| I²C1 (peripheral ← Pi 5) | SDA / SCL | GP6 / GP7 | Pico = I²C slave @ 0x42 |
+| I²C1 (peripheral ← Zero 2 W) | SDA / SCL | GP6 / GP7 | Pico = I²C slave @ 0x42 |
 | UART0 debug | TX / RX | GP0 / GP1 | `printf` console @ 115200 |
 
 PWM: RP2350 has 8 PWM slices / 16 channels — ENA (GP16) & ENB (GP19) trivially covered.
 Encoders: decoded by PIO state machines for accurate, CPU-light quadrature counting;
 each encoder's A/B must be a **consecutive GPIO pair** (base pin + 1).
-External **4.7 kΩ pull-ups** recommended on the Pi 5 I²C bus (internal pull-ups are weak).
+External **4.7 kΩ pull-ups** recommended on the Zero 2 W I²C bus (internal pull-ups are weak).
 
 ## L298N connections
 
@@ -34,7 +34,7 @@ External **4.7 kΩ pull-ups** recommended on the Pi 5 I²C bus (internal pull-up
 |-----------|-------------|-------|
 | +12V (VS) | Motor pack 3S (+) | motor supply |
 | GND | Common ground | shared with everything |
-| +5V | (leave per jumper) | onboard reg NOT used for Pi 5 |
+| +5V | (leave per jumper) | onboard reg NOT used for the logic rail |
 | ENA / ENB | Pico PWM pins | speed (PWM) |
 | IN1 / IN2 | Pico GPIO | Motor A direction |
 | IN3 / IN4 | Pico GPIO | Motor B direction |
@@ -66,16 +66,18 @@ Pico GPIO is 3.3 V; L298N inputs accept 3.3 V as logic HIGH.
 
 Single sensor → default address 0x29, no collision handling needed yet.
 
-## Raspberry Pi 5 — I²C devices
+## Raspberry Pi Zero 2 W — I²C devices
 
 | Device | Address | Bus |
 |--------|---------|-----|
-| Pico 2 (peripheral) | TBD (e.g. 0x42) | dedicated bus? (O3) |
-| MinIMU-9 v6 — LSM6DSO | 0x6B | Pi 5 I²C |
-| MinIMU-9 v6 — LIS3MDL | 0x1E | Pi 5 I²C |
-| Pan-Tilt HAT | 0x15 | Pi 5 I²C |
+| Pico 2 (peripheral) | 0x42 | dedicated bus? (O3) |
+| MinIMU-9 v6 — LSM6DSO | 0x6B | Zero I²C |
+| MinIMU-9 v6 — LIS3MDL | 0x1E | Zero I²C |
+| Pan-Tilt HAT | 0x15 | Zero I²C |
 
-No address conflicts. Pico may get its own Pi 5 I²C bus for isolation (O3).
+No address conflicts. Pico may get its own I²C bus for isolation (O3).
+Camera Module 3 connects via the **Zero-specific narrow FFC cable** (22-pin 0.5 mm → 15-pin).
+The Pan-Tilt HAT physically overhangs the small Zero board but mounts on the 40-pin header.
 
 ## Grounding rule (repeat — it matters)
 
@@ -84,5 +86,5 @@ motor pack (–) ─┐
 logic pack (–) ─┤
 L298N GND ──────┼── ONE common ground node
 Pico GND ───────┤
-Pi 5 GND ───────┘
+Zero 2 W GND ───┘
 ```

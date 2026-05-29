@@ -2,13 +2,13 @@
 
 C/C++ firmware for the Raspberry Pi Pico 2 (RP2350). Drives the motors, reads
 encoders and the ToF sensor, runs the PID velocity loops and safety reflexes,
-and exposes the [I²C register interface](../protocol/i2c_registers.md) to the Pi 5.
+and exposes the [I²C register interface](../protocol/i2c_registers.md) to the tactical host (Zero 2 W).
 
 ## Status — Phase 2 skeleton
 - ✅ I²C peripheral (slave @ `0x42`) exposing the full register space
 - ✅ Register-pointer access model with read snapshotting + command-apply-on-STOP
 - ✅ 100 Hz control-loop scaffold
-- ✅ Command watchdog (stops on Pi 5 silence) + `CONTROL_FLAGS` handling
+- ✅ Command watchdog (stops on host silence) + `CONTROL_FLAGS` handling
 - ⬜ Motor PWM via L298N
 - ⬜ Quadrature encoders (PIO) → velocity & odometry
 - ⬜ Per-wheel PID

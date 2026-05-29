@@ -1,14 +1,15 @@
-# Wanderer — Pi 5 ↔ Pico I²C Register Map
+# Wanderer — Tactical-host ↔ Pico I²C Register Map
 
-**Boundary:** Raspberry Pi 5 (I²C **master**) ↔ Pico 2 (I²C **peripheral**).
-This is the single source of truth for the reflexive-tier interface.
+**Boundary:** the tactical host — **Raspberry Pi Zero 2 W** (I²C **master**) ↔ Pico 2
+(I²C **peripheral**). This is the single source of truth for the reflexive-tier interface,
+and it is **board-agnostic** — the master could be any host.
 The C header [`i2c_registers.h`](i2c_registers.h) mirrors this document exactly and is
-included directly by the firmware; the Pi 5 Python side mirrors the same constants.
+included directly by the firmware; the host's Python side mirrors the same constants.
 
 - **Protocol version:** 1
 - **I²C address:** `0x42` (7-bit)
 - **Bus speed:** 100 kHz default (safe), 400 kHz target once validated
-- **Endianness:** **little-endian** for all multi-byte fields (matches RP2350 and Pi 5)
+- **Endianness:** **little-endian** for all multi-byte fields (matches RP2350 and the host)
 - **Floats:** IEEE-754 `float32`, little-endian (native to both sides)
 
 ## Access model (register-pointer / memory model)
