@@ -79,6 +79,14 @@ No address conflicts. Pico may get its own I²C bus for isolation (O3).
 Camera Module 3 connects via the **Zero-specific narrow FFC cable** (22-pin 0.5 mm → 15-pin).
 The Pan-Tilt HAT physically overhangs the small Zero board but mounts on the 40-pin header.
 
+## 5 V power distribution
+
+| 5 V rail branch | Connects to | Notes |
+|-----------------|-------------|-------|
+| Zero 2 W | 5V + GND power input (O2) | GPIO 5V/GND recommended; micro-USB still open |
+| Pico 2 | VSYS + GND | separate branch from the rail; do not route through Zero |
+| Pan-Tilt servos | 5 V + GND | dominant transient load; keep bulk cap nearby |
+
 ## Grounding rule (repeat — it matters)
 
 ```

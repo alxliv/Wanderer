@@ -15,8 +15,8 @@ Both packs use 18650 protection boards.
                       │ control (PWM + dir) from Pico
                       │
  Logic pack 2S ──► S13V30F5 (5V) ──► 5 V rail ──┬──► Raspberry Pi Zero 2 W
- (7.4V)            buck-boost + bulk cap         ├──► Pan-Tilt servos  (dominant 5 V load)
-                                                 └──► Pico (via Zero 5V)
+ (7.4V)            buck-boost + bulk cap         ├──► Pico 2 VSYS
+                                                 └──► Pan-Tilt servos  (dominant 5 V load)
 
  ALL GROUNDS COMMON:  motor pack GND = logic pack GND = L298N GND = Pico GND = Zero GND
 ```
@@ -41,6 +41,10 @@ buck because the buck-boost **holds 5 V across the entire 2S discharge** (8.4 V 
 so no end-of-charge brownout; it also has soft-start (gentle Zero boot) plus over-current and
 thermal protection. **Add a 470–1000 µF bulk capacitor** on the 5 V rail near the servos to
 absorb their current spikes. (Resolves **O1**.)
+
+The Zero 2 W and Pico 2 are both powered as separate branches from the regulated 5 V rail.
+Do not route Pico power through the Zero; feed Pico **VSYS** from 5 V and tie Pico GND to the
+common ground node.
 
 > Switching to the Zero 2 W dropped the SBC's ~25 W worst-case to ~3 W, removing the
 > 5–6 A buck requirement and largely retiring the runtime worry (O4).

@@ -24,7 +24,7 @@ Status: ✅ decided · 🔵 recommended/default · ⏳ open
 | D17 | Encoder logic voltage | Encoders powered at **3.3 V** (RP2350 GPIO is not 5 V-tolerant) | ✅ |
 | D18 | Pico encoder decode | Quadrature decoded via **PIO** state machines | ✅ |
 | D19 | Pico I²C topology | I²C0 = master (ToF), I²C1 = peripheral (to Zero 2 W) | ✅ |
-| D20 | Pico power | Powered from the tactical SBC's 5 V rail (now Zero 2 W) | 🔵 |
+| D20 | Pico power | Zero 2 W and Pico 2 are both powered as separate branches from the regulated 5 V rail; Pico input is VSYS | ✅ |
 | D21 | I²C protocol style | Register-map style command/telemetry interface | 🔵 |
 | D22 | Build order | Start with Phase 2 (Pico firmware) after scaffolding | ✅ |
 | D23 | **Tactical board** | **Raspberry Pi Zero 2 W** selected for lower power/weight/bulk; built-in 2.4 GHz Wi-Fi; ARM64 quad-core | ✅ |
@@ -36,6 +36,7 @@ Status: ✅ decided · 🔵 recommended/default · ⏳ open
 | D29 | ESP-01S | Reserved as a **future backup low-rate command/telemetry radio** (not the primary link) | 🔵 |
 | D30 | PC inference stack | CUDA on NVIDIA GPU; framework TBD (PyTorch / ONNX Runtime / TensorRT) | ⏳ |
 | D31 | 5 V regulator | **Pololu S13V30F5 (#4082)** buck-boost, 5 V, ~3 A @ 2S, 2.8–22 V in; + 470–1000 µF bulk cap. Holds 5 V across full 2S discharge (resolves O1) | ✅ |
+| D32 | Pi 5 vs Zero 2 W for v1 | Stay with **Raspberry Pi Zero 2 W** for the first robot version. Raspberry Pi 5 remains a future upgrade path if onboard vision, heavier autonomy, 5 GHz networking, USB 3, PCIe, SSD logging, or more local compute becomes necessary. | ✅ |
 
 ## Open / to confirm
 
@@ -59,4 +60,4 @@ Status: ✅ decided · 🔵 recommended/default · ⏳ open
 - **L298N current limit (~2 A/ch continuous)**: rely on Pico stall/timeout protection;
   avoid prolonged stalls. Accepted for prototype.
 - **L298N onboard 5 V regulator** is too weak (~0.5 A) for the logic rail — **not used**;
-  the dedicated buck feeds the Zero 2 W and servos.
+  the dedicated buck feeds the Zero 2 W, Pico 2, and servos as separate 5 V branches.
