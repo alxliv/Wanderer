@@ -15,6 +15,8 @@ pico_sdk_init()
 add_executable(wanderer_pico
     src/main.c
     src/i2c_peripheral.c
+    src/motor_output.c
+    src/motors.c
 )
 
 target_include_directories(wanderer_pico PRIVATE
@@ -24,7 +26,9 @@ target_include_directories(wanderer_pico PRIVATE
 
 target_link_libraries(wanderer_pico
     pico_stdlib
+    hardware_clocks
     hardware_i2c
+    hardware_pwm
     pico_i2c_slave
 )
 
@@ -34,3 +38,26 @@ pico_enable_stdio_usb(wanderer_pico 0)
 
 # Produce .uf2, .elf, map, etc.
 pico_add_extra_outputs(wanderer_pico)
+
+# Standalone, one-shot physical motor bring-up test. Flash only while the robot
+# is raised so its wheels can turn freely.
+add_executable(wanderer_motor_test
+    tests/motor_hardware_test.c
+    src/motor_output.c
+    src/motors.c
+)
+
+target_include_directories(wanderer_motor_test PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/src
+)
+
+target_link_libraries(wanderer_motor_test
+    pico_stdlib
+    hardware_clocks
+    hardware_i2c
+    hardware_pwm
+)
+
+pico_enable_stdio_uart(wanderer_motor_test 1)
+pico_enable_stdio_usb(wanderer_motor_test 0)
+pico_add_extra_outputs(wanderer_motor_test)

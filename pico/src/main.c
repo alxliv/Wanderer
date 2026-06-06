@@ -1,10 +1,8 @@
 /*
  * Wanderer - reflexive layer firmware (Pico 2 / RP2350).
  *
- * Phase 2 skeleton: brings up the I2C peripheral exposing the Wanderer register
- * space, and runs the control-loop scaffold with a working command watchdog and
- * CONTROL_FLAGS handling. Motors, encoders, PID, and ToF are marked TODO and
- * filled in by the subsequent Phase 2 steps.
+ * Phase 2 firmware: brings up the I2C peripheral, command watchdog, and L298N
+ * open-loop motor control. Encoders, PID, and ToF are subsequent Phase 2 steps.
  */
 #include <stdio.h>
 
@@ -14,6 +12,7 @@
 #include "i2c_registers.h"
 #include "i2c_peripheral.h"
 #include "config.h"
+#include "motors.h"
 
 #define CONTROL_PERIOD_US (1000000 / CONTROL_HZ)
 
@@ -82,7 +81,7 @@ int main(void) {
            FW_VERSION_MAJOR, FW_VERSION_MINOR,
            WANDERER_PROTOCOL_VERSION, WANDERER_I2C_ADDR);
 
-    /* TODO(motors):   motors_init();   */
+    motors_init();
     /* TODO(encoders): encoders_init(); */
     /* TODO(tof):      tof_init();      */
 
@@ -138,7 +137,7 @@ int main(void) {
                     i2cp_set_u8(REG_CONTROL_FLAGS,
                                 i2cp_get_u8(REG_CONTROL_FLAGS) & (uint8_t)~FLAG_MOTOR_ENABLE);
                     i2cp_set_u8(REG_FAULT, i2cp_get_u8(REG_FAULT) | FT_WATCHDOG);
-                    /* TODO(motors): motors_stop(); */
+                    motors_stop();
                 }
             }
         } else {
@@ -151,12 +150,19 @@ int main(void) {
         bool enabled  = (flags & FLAG_MOTOR_ENABLE) && !watchdog_tripped;
         int16_t cmd_l = i2cp_get_i16(REG_CMD_LEFT);
         int16_t cmd_r = i2cp_get_i16(REG_CMD_RIGHT);
-        (void)cmd_l; (void)cmd_r;
+        uint16_t max_pwm = i2cp_get_u16(REG_MAX_PWM);
 
-        /* 6. TODO(Phase 2 steps):
+        /* 6. Apply open-loop drive. Velocity mode remains stopped until the
+         * encoder/PID step is implemented. */
+        if (enabled && mode == MODE_DIRECT_PWM) {
+            motors_set(cmd_l, cmd_r, max_pwm);
+        } else {
+            motors_stop();
+        }
+
+        /* TODO(Phase 2 steps):
          *    - read encoders -> measured velocity (REG_MEAS_*, REG_ENC_*)
-         *    - run per-wheel PID (VELOCITY) or pass-through (DIRECT_PWM)
-         *    - drive motors via L298N (respect `enabled`, MAX_PWM)
+         *    - run per-wheel PID in VELOCITY mode
          *    - read ToF -> REG_TOF_FRONT_MM; obstacle reflex vs OBSTACLE_STOP_MM
          */
 

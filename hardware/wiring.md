@@ -30,18 +30,41 @@ External **4.7 kΩ pull-ups** recommended on the Zero 2 W I²C bus (internal pul
 
 ## L298N connections
 
+Disconnect both battery packs before changing any wiring. Remove the small
+**ENA** and **ENB** jumper caps so the Pico can drive those pins with PWM.
+For the module's logic supply, remove the **5V-EN / +5V enable** jumper and feed
+the module's `+5V` terminal from the regulated 5 V logic rail. Jumper names vary
+between L298N boards, so confirm the labels printed on this module before power-up.
+
 | L298N pin | Connects to | Notes |
 |-----------|-------------|-------|
 | +12V (VS) | Motor pack 3S (+) | motor supply |
 | GND | Common ground | shared with everything |
-| +5V | (leave per jumper) | onboard reg NOT used for the logic rail |
-| ENA / ENB | Pico PWM pins | speed (PWM) |
-| IN1 / IN2 | Pico GPIO | Motor A direction |
-| IN3 / IN4 | Pico GPIO | Motor B direction |
-| OUT1 / OUT2 | Motor A | — |
-| OUT3 / OUT4 | Motor B | — |
+| +5V | Regulated 5 V logic rail | input; `5V-EN` jumper removed |
+| ENA | Pico GP16 (physical pin 21) | remove ENA jumper; left speed PWM |
+| IN1 | Pico GP17 (physical pin 22) | left direction |
+| IN2 | Pico GP18 (physical pin 24) | left direction |
+| ENB | Pico GP19 (physical pin 25) | remove ENB jumper; right speed PWM |
+| IN3 | Pico GP20 (physical pin 26) | right direction |
+| IN4 | Pico GP21 (physical pin 27) | right direction |
+| OUT1 / OUT2 | Left motor leads | swap the pair if forward is reversed |
+| OUT3 / OUT4 | Right motor leads | swap the pair if forward is reversed |
 
 Pico GPIO is 3.3 V; L298N inputs accept 3.3 V as logic HIGH.
+
+### Power-up check
+
+1. Raise and secure the chassis so both driven wheels can rotate freely.
+2. Verify continuity between Pico GND, L298N GND, logic-pack GND, and motor-pack GND.
+3. Power the regulated 5 V logic rail first; the motors must remain stopped.
+4. Apply the motor pack to `+12V/VS`; the motors must still remain stopped.
+5. Flash and run the motor hardware test described in
+   [`pico/README.md`](../pico/README.md#motor-tests).
+
+The hardware test defines positive command as `IN1=HIGH/IN2=LOW` for the left
+motor and `IN3=HIGH/IN4=LOW` for the right motor. Because the motors face
+opposite sides of the chassis, one output lead pair may need to be swapped so
+that "BOTH forward" turns both wheels in the robot's forward direction.
 
 ## MD520 motor + encoder (per motor)
 
