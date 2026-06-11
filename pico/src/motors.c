@@ -11,59 +11,51 @@
 #define MOTOR_PWM_WRAP (MOTOR_PWM_FULL_SCALE - 1u)
 
 typedef struct {
-    uint enable_pin;
-    uint in_a_pin;
-    uint in_b_pin;
-    bool current_in_a;
-    bool current_in_b;
+    uint pwm_pin;
+    uint dir_pin;
+    bool current_direction;
 } motor_channel_t;
 
 static motor_channel_t left_motor = {
-    .enable_pin = M_A_ENA_PIN,
-    .in_a_pin = M_A_IN1_PIN,
-    .in_b_pin = M_A_IN2_PIN,
+    .pwm_pin = M1_PWM_PIN,
+    .dir_pin = M1_DIR_PIN,
 };
 
 static motor_channel_t right_motor = {
-    .enable_pin = M_B_ENB_PIN,
-    .in_a_pin = M_B_IN3_PIN,
-    .in_b_pin = M_B_IN4_PIN,
+    .pwm_pin = M2_PWM_PIN,
+    .dir_pin = M2_DIR_PIN,
 };
 
 static void init_channel(motor_channel_t *motor) {
-    gpio_init(motor->in_a_pin);
-    gpio_set_dir(motor->in_a_pin, GPIO_OUT);
-    gpio_put(motor->in_a_pin, false);
+    gpio_init(motor->dir_pin);
+    gpio_set_dir(motor->dir_pin, GPIO_OUT);
+    gpio_put(motor->dir_pin, false);
 
-    gpio_init(motor->in_b_pin);
-    gpio_set_dir(motor->in_b_pin, GPIO_OUT);
-    gpio_put(motor->in_b_pin, false);
-
-    gpio_set_function(motor->enable_pin, GPIO_FUNC_PWM);
-    uint slice = pwm_gpio_to_slice_num(motor->enable_pin);
+    gpio_init(motor->pwm_pin);
+    gpio_set_dir(motor->pwm_pin, GPIO_OUT);
+    gpio_put(motor->pwm_pin, false);
+    gpio_set_function(motor->pwm_pin, GPIO_FUNC_PWM);
+    uint slice = pwm_gpio_to_slice_num(motor->pwm_pin);
 
     pwm_config config = pwm_get_default_config();
     float divider = (float)clock_get_hz(clk_sys) /
                     ((float)MOTOR_PWM_HZ * (float)(MOTOR_PWM_WRAP + 1u));
     pwm_config_set_clkdiv(&config, divider);
     pwm_config_set_wrap(&config, MOTOR_PWM_WRAP);
-    pwm_init(slice, &config, true);
-    pwm_set_gpio_level(motor->enable_pin, 0);
-    motor->current_in_a = false;
-    motor->current_in_b = false;
+    pwm_init(slice, &config, false);
+    pwm_set_gpio_level(motor->pwm_pin, 0);
+    pwm_set_enabled(slice, true);
+    motor->current_direction = false;
 }
 
 static void apply_output(motor_channel_t *motor, motor_output_t output) {
-    if (output.in_a != motor->current_in_a ||
-        output.in_b != motor->current_in_b) {
+    if (output.direction != motor->current_direction) {
         /* Remove drive before changing direction to avoid a reverse pulse. */
-        pwm_set_gpio_level(motor->enable_pin, 0);
-        gpio_put(motor->in_a_pin, output.in_a);
-        gpio_put(motor->in_b_pin, output.in_b);
-        motor->current_in_a = output.in_a;
-        motor->current_in_b = output.in_b;
+        pwm_set_gpio_level(motor->pwm_pin, 0);
+        gpio_put(motor->dir_pin, output.direction);
+        motor->current_direction = output.direction;
     }
-    pwm_set_gpio_level(motor->enable_pin, output.duty);
+    pwm_set_gpio_level(motor->pwm_pin, output.duty);
 }
 
 void motors_init(void) {
@@ -78,7 +70,7 @@ void motors_set(int16_t left_command, int16_t right_command, uint16_t max_pwm) {
 }
 
 void motors_stop(void) {
-    motor_output_t coast = {0};
-    apply_output(&left_motor, coast);
-    apply_output(&right_motor, coast);
+    motor_output_t stopped = {0};
+    apply_output(&left_motor, stopped);
+    apply_output(&right_motor, stopped);
 }

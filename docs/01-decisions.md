@@ -37,6 +37,7 @@ Status: ✅ decided · 🔵 recommended/default · ⏳ open
 | D30 | PC inference stack | CUDA on NVIDIA GPU; framework TBD (PyTorch / ONNX Runtime / TensorRT) | ⏳ |
 | D31 | 5 V regulator | **Pololu S13V30F5 (#4082)** buck-boost, 5 V, ~3 A @ 2S, 2.8–22 V in; + 470–1000 µF bulk cap. Holds 5 V across full 2S discharge (resolves O1) | ✅ |
 | D32 | Pi 5 vs Zero 2 W for v1 | Stay with **Raspberry Pi Zero 2 W** for the first robot version. Raspberry Pi 5 remains a future upgrade path if onboard vision, heavier autonomy, 5 GHz networking, USB 3, PCIe, SSD logging, or more local compute becomes necessary. | ✅ |
+| D33 | Motor-driver replacement | Replace the L298N from D7 with **Cytron MDD10A Rev 2.0**: dual brushed-DC driver, 5–30 V motor supply, 10 A continuous/channel, 3.3 V PWM/DIR logic, 20 kHz maximum PWM. | ✅ |
 
 ## Open / to confirm
 
@@ -53,11 +54,10 @@ Status: ✅ decided · 🔵 recommended/default · ⏳ open
 - **O6 — Still cadence/resolution.** Target frame rate and JPEG resolution for the uploads
   (affects perceived responsiveness and 2.4 GHz Wi-Fi headroom). Defer to Phase 3.
 
-## Notes on tradeoffs accepted
+## Superseded motor-driver tradeoffs
 
-- **L298N voltage drop (~2–3 V)**: motors effectively see ~9–10 V → slightly lower top
-  speed. Accepted for prototype.
-- **L298N current limit (~2 A/ch continuous)**: rely on Pico stall/timeout protection;
-  avoid prolonged stalls. Accepted for prototype.
-- **L298N onboard 5 V regulator** is too weak (~0.5 A) for the logic rail — **not used**;
-  the dedicated buck feeds the Zero 2 W, Pico 2, and servos as separate 5 V branches.
+D33 supersedes D7 and removes the L298N's ~2–3 V bridge drop, ~2 A/channel
+constraint, and 5 V logic-supply jumper/regulator concerns. The replacement
+MDD10A has no motor-supply reverse-polarity protection, and its lower loss means
+the motors now receive close to the full 3S pack voltage. Maximum PWM and vehicle
+speed must therefore be revalidated during bring-up.

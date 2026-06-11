@@ -21,8 +21,7 @@ motor_output_t motor_output_from_command(int16_t command, uint16_t max_pwm) {
         magnitude = max_pwm;
     }
 
-    output.in_a = command > 0;
-    output.in_b = command < 0;
+    output.direction = command < 0;
     output.duty = (uint16_t)magnitude;
     return output;
 }

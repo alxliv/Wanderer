@@ -9,7 +9,8 @@ three-tier control architecture:
   mission planning, telemetry, teleop, **and GPU vision inference** on stills sent up by the robot.
 - **Tactical** — Raspberry Pi Zero 2 W + Pi Camera 3 + Pan-Tilt: thin relay — captures periodic
   stills, state estimation (odometry + IMU), forwards commands to the reflexive layer.
-- **Reflexive** — Raspberry Pi Pico 2 (RP2350): motor control, encoders, distance sensing, safety reflexes.
+- **Reflexive** — Raspberry Pi Pico 2 (RP2350): Cytron MDD10A motor control,
+  encoders, distance sensing, safety reflexes.
 
 ```
 Browser ⇄ (HTTP/WebSocket) ⇄ FastAPI + GPU vision (PC) ⇄ (raw TCP/Wi-Fi) ⇄ Zero 2 W ⇄ (I²C) ⇄ Pico 2 ⇄ motors/sensors

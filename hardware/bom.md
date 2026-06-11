@@ -15,7 +15,7 @@ Decision references point at [docs/01-decisions.md](../docs/01-decisions.md).
 |----:|------|-------|:------:|-----|
 | 1 | Raspberry Pi Pico 2 (RP2350) | reflexive layer | ✅ | D6 |
 | 1 | Raspberry Pi Zero 2 W | tactical relay (ARM64, 2.4 GHz Wi-Fi) | 🛒 | D23 |
-| 1 | L298N dual H-bridge motor driver | ~9–10 V to motors after drop | ✅ | D7 |
+| 1 | Cytron MDD10A Rev 2.0 dual 10 A motor driver | 5–30 V, 3.3 V logic, PWM/DIR per channel; replaces L298N | ✅ | D33 |
 
 ## Sensing
 | Qty | Item | Notes | Status | Ref |
@@ -33,7 +33,7 @@ Decision references point at [docs/01-decisions.md](../docs/01-decisions.md).
 ## Power
 | Qty | Item | Notes | Status | Ref |
 |----:|------|-------|:------:|-----|
-| 3 | 18650 Li-ion cell — **motor pack (3S)** | ≈11.1 V → L298N | ✅ | D13 |
+| 3 | 18650 Li-ion cell — **motor pack (3S)** | ≈11.1 V → MDD10A | ✅ | D13 |
 | 2 | 18650 Li-ion cell — **logic pack (2S)** | ≈7.4 V → 5 V regulator | ✅ | D14 |
 | 2 | 18650 protection / BMS board | one per pack | ✅ | D15 |
 | 1 | **Pololu S13V30F5 (#4082)** 5 V buck-boost regulator | [pololu #4082](https://www.pololu.com/product/4082); 2.8–22 V in, 5 V ~3 A; holds 5 V across full 2S discharge | 🛒 | D31 |

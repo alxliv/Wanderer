@@ -48,17 +48,17 @@ reflex) and the Zero holds a safe state; if the Zero/PC stalls, nothing time-cri
                   │  I²C  (Zero 2 W = master, Pico = peripheral)
         ┌─────────▼─────────┐
         │  Raspberry Pi Pico 2│  Reflexive
-        │  C/C++ (Pico SDK)   │  - PWM motor control via L298N
+        │  C/C++ (Pico SDK)   │  - PWM/DIR motor control via MDD10A
         │                     │  - quadrature encoders (PIO)
         │                     │  - PID velocity control
         │                     │  - VL53L0X ToF (I²C master)
         │                     │  - safety reflexes + watchdog
         └──┬──────────┬──────┘
            │          │
-       L298N        VL53L0X
+      MDD10A        VL53L0X
        │   │         (front)
      Motor Motor
-      A     B
+      1     2
    (+encoders)
 ```
 
@@ -84,7 +84,8 @@ reflex) and the Zero holds a safe state; if the Zero/PC stalls, nothing time-cri
 - *Not* doing on-board heavy vision or visual SLAM — that's the PC's job.
 
 ### Reflexive — Pico 2 (RP2350)
-- Drives both motors via the **L298N** (PWM on ENA/ENB, direction on IN1–IN4).
+- Drives both motors via the **Cytron MDD10A Rev 2.0** using sign-magnitude
+  control (PWM1/DIR1 and PWM2/DIR2).
 - Reads **quadrature encoders** (via PIO state machines) → wheel odometry & velocity.
 - **Closed-loop PID** velocity control per wheel.
 - Reads the front **VL53L0X** ToF sensor (Pico is I²C master here).

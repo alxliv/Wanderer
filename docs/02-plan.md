@@ -13,7 +13,8 @@ Phased plan. Each phase is detailed and executed in turn. ✅ done · 🚧 in pr
 ## Phase 1 — Hardware definition & wiring ⬜
 - [ ] Finalize BOM (incl. wiring, connectors, mounting, fuses/e-stop)
 - [ ] Power architecture: pack configs, distribution, fusing, common ground
-- [ ] Wiring & pinout maps: Pico↔L298N, Pico↔encoders, Pico↔ToF, Pico↔Zero 2 W (I²C),
+- [x] Wiring & pinout map: Pico↔Cytron MDD10A
+- [ ] Wiring & pinout maps: Pico↔encoders, Pico↔ToF, Pico↔Zero 2 W (I²C),
       Zero 2 W↔camera/IMU/Pan-Tilt
 - [ ] Bench-test each subsystem in isolation (motors, encoders, ToF, IMU, link)
 
@@ -21,7 +22,7 @@ Phased plan. Each phase is detailed and executed in turn. ✅ done · 🚧 in pr
 - [x] I²C register map defined (`protocol/i2c_registers.{md,h}`)
 - [x] Project skeleton (Pico SDK, CMake), UART console + LED heartbeat
 - [x] I²C peripheral interface (I²C1) — full register space, pointer model, watchdog
-- [ ] Motor PWM + direction via L298N
+- [x] Motor PWM + direction via Cytron MDD10A
 - [ ] Quadrature encoder reading via PIO → ticks, distance, velocity
 - [ ] Per-wheel closed-loop PID velocity control
 - [ ] VL53L0X ToF reading (I²C0 master)

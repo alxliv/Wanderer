@@ -22,15 +22,13 @@
 #define TOF_SCL_PIN       5     /* GP5  (I2C0 SCL) */
 #define TOF_XSHUT_PIN     8     /* GP8  (optional reset/boot control, O5) */
 
-/* ---- L298N motor A (left) ---- */
-#define M_A_ENA_PIN       16    /* PWM (speed)      */
-#define M_A_IN1_PIN       17    /* direction        */
-#define M_A_IN2_PIN       18    /* direction        */
+/* ---- Cytron MDD10A channel 1 (left) ---- */
+#define M1_PWM_PIN        16    /* PWM1 (speed)      */
+#define M1_DIR_PIN        17    /* DIR1 (direction)  */
 
-/* ---- L298N motor B (right) ---- */
-#define M_B_ENB_PIN       19    /* PWM (speed)      */
-#define M_B_IN3_PIN       20    /* direction        */
-#define M_B_IN4_PIN       21    /* direction        */
+/* ---- Cytron MDD10A channel 2 (right) ---- */
+#define M2_PWM_PIN        19    /* PWM2 (speed)      */
+#define M2_DIR_PIN        20    /* DIR2 (direction)  */
 
 /* ---- Quadrature encoders (3.3 V logic; decoded via PIO) ----
  * Each encoder uses two CONSECUTIVE GPIO (A on base pin, B on base+1) so a
@@ -53,6 +51,6 @@
 
 /* ---- Firmware version (reported in INFO registers) ---- */
 #define FW_VERSION_MAJOR  0
-#define FW_VERSION_MINOR  1
+#define FW_VERSION_MINOR  2
 
 #endif /* WANDERER_CONFIG_H */

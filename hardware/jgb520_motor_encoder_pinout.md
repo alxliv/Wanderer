@@ -34,8 +34,8 @@ Looking at the rear blue encoder PCB (with the JST-XH connector positioned as sh
 
 ### 1. Motor Armature Power (`M+`, `M-`)
 * **Electrical Isolation:** These pins bypass all logic circuitry on the PCB and route directly to the heavy structural solder pads bonded to the DC motor's brush terminals.
-* **Control Requirements:** * **Never** connect these pins directly to a microcontroller I/O pin (e.g., Arduino, Raspberry Pi Pico). The stall current of the JGB-520 can easily exceed several amperes, which will immediately destroy logic-level outputs. Always interface via a dedicated motor driver (e.g., DRV8833, L298N, or TB6612FNG).
-  * **Speed Control:** Achieved by applying a Pulse Width Modulation (PWM) signal through the motor driver to modulate the effective DC voltage.
+* **Control Requirements:** **Never** connect these pins directly to a microcontroller I/O pin (e.g., Arduino, Raspberry Pi Pico). The stall current of the JGB-520 can easily exceed several amperes, which will immediately destroy logic-level outputs. Always interface via a dedicated motor driver such as the project's Cytron MDD10A.
+* **Speed Control:** Achieved by applying a Pulse Width Modulation (PWM) signal through the motor driver to modulate the effective DC voltage.
 
 ### 2. Encoder Sensor Power (`VCC`, `GND`)
 * **Circuitry:** These pins power the dual Hall-effect sensors mounted on the PCB. A multi-pole magnetic disc is permanently pressed onto the rear extension of the motor armature shaft. As the shaft spins, the alternating magnetic poles pass over the stationary sensors.

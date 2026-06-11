@@ -4,13 +4,13 @@
 
 | Pack | Config | Voltage (nom / full / empty) | Feeds |
 |------|--------|------------------------------|-------|
-| **Motor pack** | 3S (3× 18650) | 11.1 V / 12.6 V / ~9.0 V | L298N → motors |
+| **Motor pack** | 3S (3× 18650) | 11.1 V / 12.6 V / ~9.0 V | MDD10A → motors |
 | **Logic pack**  | 2S (2× 18650) | 7.4 V / 8.4 V / ~6.0 V  | buck → 5 V → Zero 2 W, Pico, servos |
 
 Both packs use 18650 protection boards.
 
 ```
- Motor pack 3S ──► L298N ──► Motor A / Motor B
+ Motor pack 3S ──► Cytron MDD10A ──► Motor A / Motor B
  (11.1V)              ▲
                       │ control (PWM + dir) from Pico
                       │
@@ -18,12 +18,12 @@ Both packs use 18650 protection boards.
  (7.4V)            buck-boost + bulk cap         ├──► Pico 2 VSYS
                                                  └──► Pan-Tilt servos  (dominant 5 V load)
 
- ALL GROUNDS COMMON:  motor pack GND = logic pack GND = L298N GND = Pico GND = Zero GND
+ ALL GROUNDS COMMON: motor pack GND = logic pack GND = MDD10A GND = Pico GND = Zero GND
 ```
 
 ## ⚠️ Common ground (mandatory)
 The two packs are separate sources, but **every ground must be tied together**. The I²C
-buses, L298N control lines, and encoder signals are all referenced to ground; without a
+buses, MDD10A control lines, and encoder signals are all referenced to ground; without a
 shared reference the system will misbehave. Single common ground node.
 
 ## 5 V rail load estimate
@@ -56,9 +56,15 @@ common ground node.
   for the input protection.
 
 ## Motor rail notes
-- L298N drops ~2–3 V → motors see ~9–10 V. Slightly reduced top speed; accepted.
-- L298N ~2 A/channel continuous; MD520 stall current can exceed this. Pico enforces
-  stall/timeout protection; avoid prolonged stalls.
+- Cytron MDD10A Rev 2.0 accepts 5–30 V and is rated for 10 A continuous,
+  30 A peak for up to 10 seconds, per channel.
+- The fully NMOS bridge has far lower loss than the replaced L298N, so the
+  motors receive close to the motor-pack voltage instead of losing ~2–3 V in
+  the driver. Revalidate the maximum safe PWM and vehicle speed.
+- The MDD10A motor-power input has **no reverse-polarity protection**. Add an
+  appropriately rated fuse and keyed/polarized connector; verify polarity before power-up.
+- Pico watchdog and future stall detection remain required; a higher-current
+  driver does not protect the motors or drivetrain from prolonged stalls.
 - Encoder **logic** is powered separately at **3.3 V** (from the Pico), NOT from the
   motor rail — RP2350 GPIO is not 5 V-tolerant.
 

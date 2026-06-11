@@ -1,7 +1,7 @@
 /*
  * Wanderer - reflexive layer firmware (Pico 2 / RP2350).
  *
- * Phase 2 firmware: brings up the I2C peripheral, command watchdog, and L298N
+ * Phase 2 firmware: brings up the I2C peripheral, command watchdog, and MDD10A
  * open-loop motor control. Encoders, PID, and ToF are subsequent Phase 2 steps.
  */
 #include <stdio.h>

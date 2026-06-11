@@ -65,7 +65,7 @@ Standard I²C device convention:
 **`CONTROL_FLAGS` bits:**
 | Bit | Name | Kind | Meaning |
 |-----|------|------|---------|
-| 0 | `MOTOR_ENABLE`  | level  | 1 = motor output allowed; 0 = coast/stop |
+| 0 | `MOTOR_ENABLE`  | level  | 1 = motor output allowed; 0 = stop (zero PWM) |
 | 1 | `CLEAR_FAULTS`  | action | write 1 to clear FAULT bits; self-clearing |
 | 2 | `RESET_ODOMETRY`| action | write 1 to zero encoder accumulators; self-clearing |
 | 3–7 | reserved | — | |
