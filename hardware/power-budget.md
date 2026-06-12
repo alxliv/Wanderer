@@ -62,7 +62,8 @@ common ground node.
   motors receive close to the motor-pack voltage instead of losing ~2–3 V in
   the driver. Revalidate the maximum safe PWM and vehicle speed.
 - The MDD10A motor-power input has **no reverse-polarity protection**. Add an
-  appropriately rated fuse and keyed/polarized connector; verify polarity before power-up.
+  inline 7.5 A ATO/ATC fuse at the protected motor-pack positive output and use
+  a keyed/polarized connector; verify polarity before power-up.
 - Pico watchdog and future stall detection remain required; a higher-current
   driver does not protect the motors or drivetrain from prolonged stalls.
 - Encoder **logic** is powered separately at **3.3 V** (from the Pico), NOT from the

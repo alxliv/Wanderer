@@ -92,6 +92,39 @@ Because the motors face opposite sides of the chassis, one output lead pair may
 need to be swapped so that "BOTH forward" turns both wheels in the robot's
 forward direction.
 
+### Motor-pack fuse and switch
+
+Use one **7.5 A ATO/ATC automotive blade fuse, rated 32 V DC**, in an inline
+holder on the protected 3S pack's positive output. The 550 RPM MD520 is
+specified at 3 A stall current, so two stalled motors demand approximately 6 A.
+The 7.5 A fuse permits brief starting current while protecting the motor-power
+wiring against a short circuit.
+
+Wire the motor-power path in this order:
+
+```text
+3S cells → 3S BMS/protection board
+
+BMS P+ → 7.5 A inline fuse → main switch/e-stop → MDD10A POWER +
+BMS P- ─────────────────────────────────────────→ MDD10A POWER -
+                                                    │
+                                                    └→ common logic-ground bus
+```
+
+- Install the fuse holder as close as practical to `BMS P+`, preferably within
+  10 cm. It protects the wire between the pack and the motor driver.
+- Connect to the BMS protected output (`P+`/`P-`, or the equivalent labels on
+  that board), not directly to raw cell terminals in a way that bypasses protection.
+- Do not place the fuse in the negative/ground wire.
+- Use 16 AWG or 18 AWG stranded copper for both power conductors and an inline
+  fuse holder whose leads are at least the same gauge.
+- The switch/e-stop must be DC-rated for at least 15 A at 12 V DC.
+- The 3S BMS must support at least **7.5 A continuous** and the motor starting
+  surge. If its specified continuous limit is lower, the BMS is the limiting
+  component and must be replaced; fitting a larger fuse does not solve that.
+- A 7.5 A fuse protects wiring from gross faults. It is not precise motor
+  overload protection; firmware stall detection remains necessary.
+
 ## MD520 motor + encoder (per motor)
 
 | Motor | Wire (typical) | Connects to | Notes |

@@ -38,7 +38,8 @@ Decision references point at [docs/01-decisions.md](../docs/01-decisions.md).
 | 2 | 18650 protection / BMS board | one per pack | ✅ | D15 |
 | 1 | **Pololu S13V30F5 (#4082)** 5 V buck-boost regulator | [pololu #4082](https://www.pololu.com/product/4082); 2.8–22 V in, 5 V ~3 A; holds 5 V across full 2S discharge | 🛒 | D31 |
 | 1 | Bulk capacitor 470–1000 µF (≥10 V) | on 5 V rail near servos, absorbs spikes | 🛒 | D31 |
-| 1 | Main power switch / e-stop | per-rail fusing TBD | 🛒 | — |
+| 1 | 7.5 A ATO/ATC automotive blade fuse + inline holder | 32 V DC; mount within 10 cm of motor-pack BMS `P+`; 16–18 AWG copper leads | 🛒 | — |
+| 1 | Main motor switch / e-stop | ≥15 A at 12 V DC; installed after motor-pack fuse | 🛒 | — |
 
 ## Wiring & misc
 | Qty | Item | Notes | Status | Ref |
