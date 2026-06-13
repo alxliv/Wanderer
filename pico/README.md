@@ -62,9 +62,33 @@ cmake --build pico/tests/build
 ctest --test-dir pico/tests/build -C Debug --output-on-failure
 ```
 
-`pico/build/wanderer_motor_test.uf2` is a separate physical bring-up image.
-Before flashing it, raise and secure the chassis so both wheels turn freely.
-After a 5-second delay it runs this one-shot sequence at 30% PWM:
+Run the `ctest` command from the repository root:
+
+- `--test-dir pico/tests/build` tells CTest where CMake generated the host
+  test project, so there is no need to change into that directory first.
+- `-C Debug` selects the Debug executable produced by multi-configuration
+  generators such as Visual Studio. It must match the configuration that was
+  built.
+- `--output-on-failure` keeps successful output brief, but prints the failing
+  test's output to help diagnose an assertion or crash.
+
+This runs the registered `motor_output` test on the development computer. It
+does not flash a Pico or operate the physical motors.
+
+The physical motor test is a separate Pico firmware target defined in
+`pico/CMakeLists.txt`. From the repository root, build only that target with:
+
+```powershell
+cmake --build pico/build --target wanderer_motor_test
+```
+
+The target compiles `tests/motor_hardware_test.c`, `src/motor_output.c`, and
+`src/motors.c`. CMake's `pico_add_extra_outputs(wanderer_motor_test)` then
+creates `pico/build/wanderer_motor_test.uf2`, which is the file to flash onto
+the Pico.
+
+Before flashing this image, raise and secure the chassis so both wheels turn
+freely. After a 5-second delay it runs this one-shot sequence at 30% PWM:
 
 1. Left forward, then reverse
 2. Right forward, then reverse
