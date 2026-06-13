@@ -1,8 +1,8 @@
 /*
  * Wanderer - reflexive layer firmware (Pico 2 / RP2350).
  *
- * Phase 2 firmware: brings up the I2C peripheral, command watchdog, and MDD10A
- * open-loop motor control. Encoders, PID, and ToF are subsequent Phase 2 steps.
+ * Phase 2 firmware: I2C peripheral, command watchdog, MDD10A open-loop motor
+ * control, and PIO quadrature encoder telemetry. PID and ToF are later steps.
  */
 #include <stdio.h>
 
@@ -12,6 +12,8 @@
 #include "i2c_registers.h"
 #include "i2c_peripheral.h"
 #include "config.h"
+#include "encoder_math.h"
+#include "encoders.h"
 #include "motors.h"
 
 #define CONTROL_PERIOD_US (1000000 / CONTROL_HZ)
@@ -41,10 +43,12 @@ static void load_defaults(void) {
 }
 
 /* Handle self-clearing action flags written by the master. */
-static bool handle_control_flags(void) {
+static bool handle_control_flags(bool *odometry_reset) {
     uint8_t flags = i2cp_get_u8(REG_CONTROL_FLAGS);
     bool clear_faults = false;
     bool changed = false;
+
+    *odometry_reset = false;
 
     if (flags & FLAG_CLEAR_FAULTS) {
         i2cp_set_u8(REG_FAULT, 0);
@@ -53,9 +57,12 @@ static bool handle_control_flags(void) {
         changed = true;
     }
     if (flags & FLAG_RESET_ODOM) {
+        encoders_reset();
         i2cp_set_i32(REG_ENC_LEFT, 0);
         i2cp_set_i32(REG_ENC_RIGHT, 0);
-        /* TODO(encoders): zero the encoder driver's accumulators too. */
+        i2cp_set_i16(REG_MEAS_LEFT, 0);
+        i2cp_set_i16(REG_MEAS_RIGHT, 0);
+        *odometry_reset = true;
         flags &= ~FLAG_RESET_ODOM;
         changed = true;
     }
@@ -82,10 +89,11 @@ int main(void) {
            WANDERER_PROTOCOL_VERSION, WANDERER_I2C_ADDR);
 
     motors_init();
-    /* TODO(encoders): encoders_init(); */
+    encoders_init();
     /* TODO(tof):      tof_init();      */
 
     absolute_time_t next_tick = make_timeout_time_us(CONTROL_PERIOD_US);
+    absolute_time_t last_encoder_sample = get_absolute_time();
     uint32_t last_cmd_ms = to_ms_since_boot(get_absolute_time());
     bool watchdog_tripped = false;
 
@@ -95,7 +103,8 @@ int main(void) {
     while (true) {
         sleep_until(next_tick);
         next_tick = delayed_by_us(next_tick, CONTROL_PERIOD_US);
-        uint32_t now_ms = to_ms_since_boot(get_absolute_time());
+        absolute_time_t now = get_absolute_time();
+        uint32_t now_ms = to_ms_since_boot(now);
 
         /* 1. New command from the master refreshes the watchdog. */
         if (i2cp_take_command_written()) {
@@ -109,7 +118,8 @@ int main(void) {
         }
 
         /* 3. Self-clearing action flags. */
-        bool clear_faults = handle_control_flags();
+        bool odometry_reset;
+        bool clear_faults = handle_control_flags(&odometry_reset);
 
         /* Watchdog recovery is latched. CLEAR_FAULTS can clear the latch, but
          * motor output remains disabled until the host explicitly re-enables it
@@ -160,13 +170,39 @@ int main(void) {
             motors_stop();
         }
 
+        /* 7. Sample PIO-maintained encoder counts and derive wheel velocity. */
+        encoder_sample_t encoder = encoders_sample();
+        i2cp_set_i32(REG_ENC_LEFT, encoder.left_ticks);
+        i2cp_set_i32(REG_ENC_RIGHT, encoder.right_ticks);
+
+        if (odometry_reset) {
+            i2cp_set_i16(REG_MEAS_LEFT, 0);
+            i2cp_set_i16(REG_MEAS_RIGHT, 0);
+        } else {
+            int64_t elapsed = absolute_time_diff_us(last_encoder_sample, now);
+            uint32_t elapsed_us =
+                elapsed <= 0 ? 0u :
+                elapsed > (int64_t)UINT32_MAX ? UINT32_MAX :
+                (uint32_t)elapsed;
+            float ticks_per_meter = i2cp_get_f32(REG_TICKS_PER_METER);
+
+            i2cp_set_i16(
+                REG_MEAS_LEFT,
+                encoder_velocity_mm_s(encoder.left_delta, ticks_per_meter,
+                                      elapsed_us));
+            i2cp_set_i16(
+                REG_MEAS_RIGHT,
+                encoder_velocity_mm_s(encoder.right_delta, ticks_per_meter,
+                                      elapsed_us));
+        }
+        last_encoder_sample = now;
+
         /* TODO(Phase 2 steps):
-         *    - read encoders -> measured velocity (REG_MEAS_*, REG_ENC_*)
          *    - run per-wheel PID in VELOCITY mode
          *    - read ToF -> REG_TOF_FRONT_MM; obstacle reflex vs OBSTACLE_STOP_MM
          */
 
-        /* 7. Publish STATUS telemetry. */
+        /* 8. Publish STATUS telemetry. */
         uint8_t status = 0;
         if (enabled)              status |= ST_MOTORS_ENABLED;
         if (watchdog_tripped)     status |= ST_WATCHDOG_TRIPPED;
@@ -174,7 +210,7 @@ int main(void) {
         status |= (uint8_t)((mode << ST_MODE_SHIFT) & ST_MODE_MASK);
         i2cp_set_u8(REG_STATUS, status);
 
-        /* 8. Loop-rate health + heartbeat LED (once per second). */
+        /* 9. Loop-rate health + heartbeat LED (once per second). */
         loop_count++;
         if (absolute_time_diff_us(hz_mark, get_absolute_time()) >= 1000000) {
             i2cp_set_u16(REG_LOOP_HZ, (uint16_t)loop_count);

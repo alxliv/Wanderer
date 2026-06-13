@@ -52,7 +52,7 @@
  *
  * Expected sequence
  * -----------------
- * Each movement uses 30% PWM for one second, followed by one stopped second:
+ * Each movement uses 40% PWM for one second, followed by one stopped second:
  *
  *     1. Left wheel forward
  *     2. Left wheel reverse
@@ -63,8 +63,9 @@
  *
  * The test passes only if the correct wheel moves in every single-wheel step,
  * forward/reverse match the robot's intended directions, both wheels behave
- * consistently, and the wheels stop during every pause. Unexpected motion
- * indicates a pin-map, wiring, direction, or motor-driver problem.
+ * consistently, encoder counts change only for moving wheels, and the wheels
+ * stop during every pause. Forward should increase ticks and reverse should
+ * decrease them; adjust ENC_LEFT_SIGN or ENC_RIGHT_SIGN in config.h if needed.
  *
  * After the sequence, the firmware leaves both outputs stopped and waits for
  * another S command. Each command runs exactly one complete sequence. Remove
@@ -77,18 +78,23 @@
 #include "pico/stdlib.h"
 #include "pico/stdio_usb.h"
 
+#include "encoders.h"
 #include "motor_output.h"
 #include "motors.h"
 
 /*
- * PWM values use per-mille units: 1000 is 100% duty, so 300 is 30%.
+ * PWM values use per-mille units: 1000 is 100% duty, so 400 is 40%.
  * Keep this low enough for a safe bench test while still overcoming the
  * motors' starting friction.
  */
-#define TEST_MAX_DUTY_PER_MILLE 400u // 40 % duty cycle
+#define TEST_MAX_DUTY_PER_MILLE 400u
 #define START_DELAY_MS 5000
 #define RUN_MS 1000
 #define PAUSE_MS 1000
+#define ENCODER_REPORT_MS 100
+
+_Static_assert(RUN_MS % ENCODER_REPORT_MS == 0,
+               "RUN_MS must be divisible by ENCODER_REPORT_MS");
 
 /*
  * USB enumeration alone does not mean a terminal is ready. Wait until the host
@@ -134,12 +140,33 @@ static void run_step(const char *name, int8_t left_direction, int8_t right_direc
 
     printf("%s\n", name);
     motors_set(left_command, right_command, TEST_MAX_DUTY_PER_MILLE);
-    sleep_ms(RUN_MS);
+
+    absolute_time_t next_report = make_timeout_time_ms(ENCODER_REPORT_MS);
+    for (uint32_t elapsed_ms = ENCODER_REPORT_MS;
+         elapsed_ms <= RUN_MS;
+         elapsed_ms += ENCODER_REPORT_MS) {
+        sleep_until(next_report);
+        next_report = delayed_by_ms(next_report, ENCODER_REPORT_MS);
+
+        encoder_sample_t sample = encoders_sample();
+        printf("  %4lu ms: L=%ld (%+ld), R=%ld (%+ld)\n",
+               (unsigned long)elapsed_ms,
+               (long)sample.left_ticks, (long)sample.left_delta,
+               (long)sample.right_ticks, (long)sample.right_delta);
+    }
+
     motors_stop();
     sleep_ms(PAUSE_MS);
+
+    encoder_sample_t stopped = encoders_sample();
+    printf("  stopped: L=%ld, R=%ld\n",
+           (long)stopped.left_ticks, (long)stopped.right_ticks);
 }
 
 static void run_test_sequence(void) {
+    encoders_reset();
+    printf("Encoder counts reset to zero.\n");
+
     run_step("LEFT forward", +1, 0);
     run_step("LEFT reverse", -1, 0);
     run_step("RIGHT forward", 0, +1);
@@ -157,6 +184,7 @@ int main(void) {
      * MDD10A motor supply is switched on.
      */
     motors_init();
+    encoders_init();
 
     wait_for_usb_serial();
     printf("\nWanderer motor hardware test\n");

@@ -1,0 +1,98 @@
+;
+; Copyright (c) 2023 Raspberry Pi (Trading) Ltd.
+;
+; SPDX-License-Identifier: BSD-3-Clause
+;
+; Adapted from the Raspberry Pi pico-examples quadrature_encoder program:
+; https://github.com/raspberrypi/pico-examples/tree/master/pio/quadrature_encoder
+;
+.pio_version 0
+
+.program quadrature_encoder
+
+; Computed jumps require the program to be loaded at address zero.
+.origin 0
+
+; The lower four bits combine the previous and current A/B states. Each entry
+; dispatches to no change, increment, or decrement for that transition.
+
+; Previous state 00.
+    JMP update
+    JMP decrement
+    JMP increment
+    JMP update
+
+; Previous state 01.
+    JMP increment
+    JMP update
+    JMP update
+    JMP decrement
+
+; Previous state 10.
+    JMP decrement
+    JMP update
+    JMP update
+    JMP increment
+
+; Previous state 11. The final states are implemented in place to save space.
+    JMP update
+    JMP increment
+decrement:
+    JMP Y--, update
+
+.wrap_target
+update:
+    MOV ISR, Y
+    PUSH noblock
+
+    ; Build a four-bit previous/current state and dispatch through MOV PC.
+    OUT ISR, 2
+    IN PINS, 2
+    MOV OSR, ISR
+    MOV PC, ISR
+
+increment:
+    MOV Y, ~Y
+    JMP Y--, increment_cont
+increment_cont:
+    MOV Y, ~Y
+.wrap
+
+% c-sdk {
+
+#include "hardware/clocks.h"
+#include "hardware/gpio.h"
+
+static inline void quadrature_encoder_program_init(PIO pio, uint sm, uint pin)
+{
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 2, false);
+    pio_gpio_init(pio, pin);
+    pio_gpio_init(pio, pin + 1);
+
+    gpio_pull_up(pin);
+    gpio_pull_up(pin + 1);
+
+    pio_sm_config config = quadrature_encoder_program_get_default_config(0);
+    sm_config_set_in_pins(&config, pin);
+    sm_config_set_jmp_pin(&config, pin);
+    sm_config_set_in_shift(&config, false, false, 32);
+    sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_NONE);
+    sm_config_set_clkdiv(&config, 1.0f);
+
+    pio_sm_init(pio, sm, 0, &config);
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+static inline uint32_t quadrature_encoder_get_count(PIO pio, uint sm)
+{
+    uint32_t count = 0;
+    int samples = pio_sm_get_rx_fifo_level(pio, sm) + 1;
+
+    /* Drain queued values, then wait for one value guaranteed to be current. */
+    while (samples-- > 0) {
+        count = pio_sm_get_blocking(pio, sm);
+    }
+    return count;
+}
+
+%}

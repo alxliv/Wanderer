@@ -22,10 +22,10 @@ Keep this table and the detailed connection tables below synchronized with it.
 | GP6 | 9 | I²C1 SDA, bidirectional | Zero 2 W ↔ Pico command/telemetry data; Pico peripheral at `0x42` | Active; `PI_SDA_PIN` |
 | GP7 | 10 | I²C1 SCL, input | Clock from Zero 2 W I²C master | Active; `PI_SCL_PIN` |
 | GP8 | 11 | Digital output | VL53L0X `XSHUT` reset/enable | Reserved/optional; `TOF_XSHUT_PIN` |
-| GP10 | 14 | PIO digital input | Left MD520 encoder C1 / channel A | Reserved; `ENC_A_PIN_BASE` |
-| GP11 | 15 | PIO digital input | Left MD520 encoder C2 / channel B | Reserved; `ENC_A_PIN_BASE + 1` |
-| GP12 | 16 | PIO digital input | Right MD520 encoder C1 / channel A | Reserved; `ENC_B_PIN_BASE` |
-| GP13 | 17 | PIO digital input | Right MD520 encoder C2 / channel B | Reserved; `ENC_B_PIN_BASE + 1` |
+| GP10 | 14 | PIO digital input | Left MD520 encoder C1 / channel A | Active; `ENC_LEFT_PIN_BASE` |
+| GP11 | 15 | PIO digital input | Left MD520 encoder C2 / channel B | Active; `ENC_LEFT_PIN_BASE + 1` |
+| GP12 | 16 | PIO digital input | Right MD520 encoder C1 / channel A | Active; `ENC_RIGHT_PIN_BASE` |
+| GP13 | 17 | PIO digital input | Right MD520 encoder C2 / channel B | Active; `ENC_RIGHT_PIN_BASE + 1` |
 | GP16 | 21 | PWM output | MDD10A `PWM1`, left motor speed at 20 kHz | Active; `M1_PWM_PIN` |
 | GP17 | 22 | Digital output | MDD10A `DIR1`, left motor direction | Active; `M1_DIR_PIN` |
 | GP19 | 25 | PWM output | MDD10A `PWM2`, right motor speed at 20 kHz | Active; `M2_PWM_PIN` |
@@ -38,8 +38,12 @@ unassigned. GP18 and GP21, formerly used by the L298N interface, are free.
 
 PWM: RP2350 has 8 PWM slices / 16 channels; PWM1 (GP16) and PWM2 (GP19)
 use separate channels. The firmware uses 20 kHz, the MDD10A maximum.
-Encoders: decoded by PIO state machines for accurate, CPU-light quadrature counting;
-each encoder's A/B must be a **consecutive GPIO pair** (base pin + 1).
+Encoders are decoded by two PIO state machines for accurate, CPU-light
+quadrature counting. Each encoder's A/B must be a **consecutive GPIO pair**
+(base pin + 1). Firmware counts every valid A/B transition (x4 decoding), so
+`TICKS_PER_METER` calibration must use that same edge count. Forward wheel
+motion should produce positive ticks; use `ENC_LEFT_SIGN` and `ENC_RIGHT_SIGN`
+in `pico/src/config.h` to correct polarity without rewiring A/B.
 External **4.7 kΩ pull-ups** recommended on the Zero 2 W I²C bus (internal pull-ups are weak).
 
 ## Cytron MDD10A Rev 2.0 connections

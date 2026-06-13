@@ -14,3 +14,14 @@ target_include_directories(test_motor_output PRIVATE
 )
 
 add_test(NAME motor_output COMMAND test_motor_output)
+
+add_executable(test_encoder_math
+    test_encoder_math.c
+    ../src/encoder_math.c
+)
+
+target_include_directories(test_encoder_math PRIVATE
+    ../src
+)
+
+add_test(NAME encoder_math COMMAND test_encoder_math)

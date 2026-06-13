@@ -15,8 +15,14 @@ pico_sdk_init()
 add_executable(wanderer_pico
     src/main.c
     src/i2c_peripheral.c
+    src/encoder_math.c
+    src/encoders.c
     src/motor_output.c
     src/motors.c
+)
+
+pico_generate_pio_header(wanderer_pico
+    ${CMAKE_CURRENT_LIST_DIR}/src/quadrature_encoder.pio
 )
 
 target_include_directories(wanderer_pico PRIVATE
@@ -28,6 +34,7 @@ target_link_libraries(wanderer_pico
     pico_stdlib
     hardware_clocks
     hardware_i2c
+    hardware_pio
     hardware_pwm
     pico_i2c_slave
 )
@@ -43,8 +50,13 @@ pico_add_extra_outputs(wanderer_pico)
 # is raised so its wheels can turn freely.
 add_executable(wanderer_motor_test
     tests/motor_hardware_test.c
+    src/encoders.c
     src/motor_output.c
     src/motors.c
+)
+
+pico_generate_pio_header(wanderer_motor_test
+    ${CMAKE_CURRENT_LIST_DIR}/src/quadrature_encoder.pio
 )
 
 target_include_directories(wanderer_motor_test PRIVATE
@@ -55,6 +67,7 @@ target_link_libraries(wanderer_motor_test
     pico_stdlib
     hardware_clocks
     hardware_i2c
+    hardware_pio
     hardware_pwm
 )
 

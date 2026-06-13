@@ -113,7 +113,7 @@ Standard I²C device convention:
 Online-tunable for R&D. Applied on write-transaction STOP. Defaults baked into firmware.
 | Addr | Name | Type | Notes |
 |------|------|------|-------|
-| 0x40 | `TICKS_PER_METER` | f32 | encoder calibration (CPR × gearing ÷ wheel circumference) |
+| 0x40 | `TICKS_PER_METER` | f32 | x4 encoder-edge calibration (all valid A/B transitions per meter) |
 | 0x44 | `PID_KP` | f32 | velocity PID, applied to both wheels |
 | 0x48 | `PID_KI` | f32 | |
 | 0x4C | `PID_KD` | f32 | |

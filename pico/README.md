@@ -1,8 +1,10 @@
 # Wanderer — Pico 2 firmware (reflexive layer)
 
 C/C++ firmware for the Raspberry Pi Pico 2 (RP2350). Drives the motors, reads
-encoders and the ToF sensor, runs the PID velocity loops and safety reflexes,
-and exposes the [I²C register interface](../protocol/i2c_registers.md) to the tactical host (Zero 2 W).
+quadrature encoders, and exposes the
+[I²C register interface](../protocol/i2c_registers.md) to the tactical host
+(Zero 2 W). PID velocity control, ToF sensing, and obstacle reflexes are later
+Phase 2 steps.
 
 ## Status — Phase 2
 - ✅ I²C peripheral (slave @ `0x42`) exposing the full register space
@@ -10,7 +12,7 @@ and exposes the [I²C register interface](../protocol/i2c_registers.md) to the t
 - ✅ 100 Hz control-loop scaffold
 - ✅ Command watchdog (stops on host silence) + `CONTROL_FLAGS` handling
 - ✅ Cytron MDD10A open-loop motor PWM/DIR control in `DIRECT_PWM` mode
-- ⬜ Quadrature encoders (PIO) → velocity & odometry
+- ✅ Quadrature encoders (PIO) → velocity & odometry telemetry
 - ⬜ Per-wheel PID
 - ⬜ VL53L0X ToF + obstacle reflex
 
@@ -40,6 +42,7 @@ $env:PATH = "$tc;$env:PATH"
 cmake -S pico -B pico/build -G Ninja `
   -DPICO_SDK_PATH="$env:PICO_SDK_PATH" `
   -DPICO_TOOLCHAIN_PATH="$tc" `
+  -Dpioasm_DIR="$env:USERPROFILE/.pico-sdk/tools/2.2.0/pioasm" `
   -Dpicotool_DIR="$env:USERPROFILE/.pico-sdk/picotool/2.1.1/picotool"
 ```
 
@@ -53,8 +56,8 @@ Output: `pico/build/wanderer_pico.uf2`.
 
 ## Motor tests
 
-The automated unit test validates the MDD10A sign-magnitude direction mapping,
-command saturation, and the configurable PWM limit without requiring a Pico:
+The automated unit tests validate the MDD10A sign-magnitude direction mapping,
+PWM limits, and encoder tick-to-velocity conversion without requiring a Pico:
 
 ```powershell
 cmake -S pico/tests -B pico/tests/build
@@ -72,8 +75,8 @@ Run the `ctest` command from the repository root:
 - `--output-on-failure` keeps successful output brief, but prints the failing
   test's output to help diagnose an assertion or crash.
 
-This runs the registered `motor_output` test on the development computer. It
-does not flash a Pico or operate the physical motors.
+This runs the registered `motor_output` and `encoder_math` tests on the
+development computer. It does not flash a Pico or operate physical hardware.
 
 The physical motor test is a separate Pico firmware target defined in
 `pico/CMakeLists.txt`. From the repository root, build only that target with:
@@ -99,7 +102,8 @@ cannot automatically detect whether its motor supply is present. Typing `S` is
 the operator's confirmation that motor power is on. After arming, a final
 5-second delay allows the operator to remove motor power and abort.
 
-Each `S` command runs this complete sequence once at 30% PWM:
+Each `S` command resets both encoder counts and runs this complete sequence once
+at 40% PWM:
 
 1. Left forward, then reverse
 2. Right forward, then reverse
@@ -107,9 +111,11 @@ Each `S` command runs this complete sequence once at 30% PWM:
 
 Each movement lasts one second with a one-second stopped interval. The firmware
 then leaves both outputs stopped and waits for another `S` command, allowing
-the sequence to be repeated without reflashing or resetting the Pico. This test
-confirms wiring and visible motor operation; the unit test alone cannot prove
-that a physical motor turns.
+the sequence to be repeated without reflashing or resetting the Pico. During
+each movement, USB serial prints cumulative left/right ticks and the tick delta
+for each 100 ms sample. The moving wheel should change while the stopped wheel
+stays near zero; forward should be positive and reverse negative. If one
+wheel's signs are reversed, change its `ENC_*_SIGN` value in `src/config.h`.
 
 After the hardware test, flash `wanderer_pico.uf2` again for normal operation.
 Normal firmware only drives the motors when `MOTOR_ENABLE` is set and
@@ -133,6 +139,9 @@ separate `wanderer_motor_test` firmware uses USB CDC serial for its arm command.
 | `src/i2c_peripheral.{c,h}` | I²C slave + register image + typed accessors |
 | `src/motors.{c,h}` | Cytron MDD10A GPIO/PWM driver |
 | `src/motor_output.{c,h}` | testable command clamp and direction mapping |
+| `src/encoders.{c,h}` | dual PIO quadrature counters and odometry samples |
+| `src/encoder_math.{c,h}` | testable tick-delta to mm/s conversion |
+| `src/quadrature_encoder.pio` | PIO quadrature transition decoder |
 | `src/config.h` | pin map + tunable defaults (keep in sync with `hardware/wiring.md`) |
 | `tests/` | host unit test and one-shot Pico motor hardware test |
 | `../protocol/i2c_registers.h` | shared register definitions (source of truth) |

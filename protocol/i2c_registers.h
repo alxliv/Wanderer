@@ -74,7 +74,7 @@
 #define FT_WATCHDOG        (1u << 7)
 
 /* ---- CONFIG (read/write) 0x40-0x5F ---- */
-#define REG_TICKS_PER_METER 0x40u /* f32 */
+#define REG_TICKS_PER_METER 0x40u /* f32, x4 quadrature edges per meter */
 #define REG_PID_KP          0x44u /* f32 */
 #define REG_PID_KI          0x48u /* f32 */
 #define REG_PID_KD          0x4Cu /* f32 */
