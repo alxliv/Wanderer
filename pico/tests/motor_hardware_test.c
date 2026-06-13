@@ -1,3 +1,74 @@
+/*
+ * Standalone physical motor bring-up test for the Wanderer Pico firmware.
+ *
+ * Purpose
+ * -------
+ * This test verifies behavior that the host-side test_motor_output program
+ * cannot check: Pico GPIO/PWM operation, motor-driver wiring, wheel assignment,
+ * and the physical forward/reverse direction of each motor. This is test
+ * firmware, not the normal robot firmware.
+ *
+ * Build
+ * -----
+ * First configure the main Pico build as described in pico/README.md. Then,
+ * from the repository root, build this firmware target:
+ *
+ *     cmake --build pico/build --target wanderer_motor_test
+ *
+ * The file to flash is:
+ *
+ *     pico/build/wanderer_motor_test.uf2
+ *
+ * Prepare the robot
+ * -----------------
+ * 1. Turn off motor power before handling the robot or changing wiring.
+ * 2. Raise and securely support the chassis so both wheels can rotate freely.
+ *    Do not run this test with the drive wheels touching the floor.
+ * 3. Keep hands, cables, tools, and loose clothing clear of the wheels.
+ * 4. Be ready to remove motor power immediately if a wheel binds, the chassis
+ *    moves, or the observed sequence differs from the sequence below.
+ *
+ * Flash and run
+ * -------------
+ * 1. Hold BOOTSEL while connecting/resetting the Pico so it appears as a USB
+ *    mass-storage device.
+ * 2. Copy wanderer_motor_test.uf2 to the Pico.
+ * 3. Connect a 115200-baud UART terminal to GP0/GP1 before enabling motor
+ *    power. USB serial output is disabled by CMake.
+ * 4. Confirm again that the chassis is secure, then enable motor power.
+ * 5. Type S in the UART terminal to arm the test. The sequence does not start
+ *    merely because time has elapsed.
+ * 6. After arming, there is a final five-second warning delay before movement.
+ *
+ * UART0 wiring: Pico GP0 (TX) to adapter RX, Pico GP1 (RX) to adapter TX, and
+ * Pico GND to adapter GND. Do not connect a 5 V UART signal to the Pico.
+ *
+ * The MDD10A has no motor-supply status output connected to the Pico. Firmware
+ * cannot electrically prove that motor power is present, so the S command is
+ * the operator's confirmation that power is on. Automatic detection would
+ * require a properly scaled, protected motor-voltage sense input.
+ *
+ * Expected sequence
+ * -----------------
+ * Each movement uses 30% PWM for one second, followed by one stopped second:
+ *
+ *     1. Left wheel forward
+ *     2. Left wheel reverse
+ *     3. Right wheel forward
+ *     4. Right wheel reverse
+ *     5. Both wheels forward
+ *     6. Both wheels reverse
+ *
+ * The test passes only if the correct wheel moves in every single-wheel step,
+ * forward/reverse match the robot's intended directions, both wheels behave
+ * consistently, and the wheels stop during every pause. Unexpected motion
+ * indicates a pin-map, wiring, direction, or motor-driver problem.
+ *
+ * After the sequence, the firmware leaves both outputs stopped and loops
+ * forever; it does not repeat automatically. Remove motor power, then flash
+ * pico/build/wanderer_pico.uf2 to restore the normal robot firmware.
+ */
+
 #include <stdio.h>
 
 #include "pico/stdlib.h"
@@ -14,6 +85,25 @@
 #define START_DELAY_MS 5000
 #define RUN_MS 1000
 #define PAUSE_MS 1000
+
+/*
+ * Keep the outputs stopped until the operator confirms that motor power is on.
+ * A specific character is required so terminal startup noise or a leftover
+ * newline cannot accidentally start the motors.
+ */
+static void wait_for_operator_arm(void) {
+    printf("Motor outputs are stopped.\n");
+    printf("Raise and secure the robot, enable motor power, then type S to start.\n");
+
+    while (true) {
+        int input = getchar_timeout_us(0);
+        if (input == 's' || input == 'S') {
+            printf("Start command received.\n");
+            return;
+        }
+        tight_loop_contents();
+    }
+}
 
 /*
  * A direction is -1 for reverse, 0 for stopped, or +1 for forward.
@@ -33,10 +123,23 @@ static void run_step(const char *name, int8_t left_direction, int8_t right_direc
 
 int main(void) {
     stdio_init_all();
+
+    /*
+     * Initialize immediately so PWM is held low even while motor power is off.
+     * It is safe and desirable to establish the stopped logic state before the
+     * MDD10A motor supply is switched on.
+     */
     motors_init();
 
     printf("\nWanderer motor hardware test\n");
-    printf("Raise the robot so both wheels turn freely. Test starts in 5 seconds.\n");
+    wait_for_operator_arm();
+
+    /*
+     * Reassert zero PWM after arming, then allow time to abort before the first
+     * movement. GPIO and PWM were already configured by motors_init() at boot.
+     */
+    motors_stop();
+    printf("Test starts in 5 seconds. Remove motor power now to abort.\n");
     sleep_ms(START_DELAY_MS);
 
     run_step("LEFT forward", +1, 0);

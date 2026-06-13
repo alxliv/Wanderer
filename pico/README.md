@@ -88,7 +88,16 @@ creates `pico/build/wanderer_motor_test.uf2`, which is the file to flash onto
 the Pico.
 
 Before flashing this image, raise and secure the chassis so both wheels turn
-freely. After a 5-second delay it runs this one-shot sequence at 30% PWM:
+freely. Connect a 115200-baud UART terminal to UART0 (GP0 TX, GP1 RX, and
+common ground), then enable motor power and type `S` to arm the test. USB serial
+is disabled, and the test waits indefinitely for this UART command.
+
+The MDD10A does not provide the Pico with a motor-power-good signal, so firmware
+cannot automatically detect whether its motor supply is present. Typing `S` is
+the operator's confirmation that motor power is on. After arming, a final
+5-second delay allows the operator to remove motor power and abort.
+
+The test then runs this one-shot sequence at 30% PWM:
 
 1. Left forward, then reverse
 2. Right forward, then reverse
