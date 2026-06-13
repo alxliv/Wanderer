@@ -58,6 +58,8 @@ target_link_libraries(wanderer_motor_test
     hardware_pwm
 )
 
-pico_enable_stdio_uart(wanderer_motor_test 1)
-pico_enable_stdio_usb(wanderer_motor_test 0)
+# The hardware test is manually armed through the Pico's USB CDC serial port.
+# Keep UART0 free so no external USB-to-UART adapter is required.
+pico_enable_stdio_uart(wanderer_motor_test 0)
+pico_enable_stdio_usb(wanderer_motor_test 1)
 pico_add_extra_outputs(wanderer_motor_test)

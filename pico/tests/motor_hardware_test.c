@@ -33,15 +33,17 @@
  * 1. Hold BOOTSEL while connecting/resetting the Pico so it appears as a USB
  *    mass-storage device.
  * 2. Copy wanderer_motor_test.uf2 to the Pico.
- * 3. Connect a 115200-baud UART terminal to GP0/GP1 before enabling motor
- *    power. USB serial output is disabled by CMake.
+ * 3. After the Pico reboots, open its USB CDC serial port in a terminal. No
+ *    USB-to-UART adapter is required. A 115200-baud terminal setting is fine;
+ *    USB CDC does not use a physical UART baud rate.
  * 4. Confirm again that the chassis is secure, then enable motor power.
- * 5. Type S in the UART terminal to arm the test. The sequence does not start
- *    merely because time has elapsed.
+ * 5. Type S in the USB serial terminal to arm the test. The sequence does not
+ *    start merely because time has elapsed.
  * 6. After arming, there is a final five-second warning delay before movement.
  *
- * UART0 wiring: Pico GP0 (TX) to adapter RX, Pico GP1 (RX) to adapter TX, and
- * Pico GND to adapter GND. Do not connect a 5 V UART signal to the Pico.
+ * The firmware waits for the computer to open the USB serial port before it
+ * prints the prompt. Closing and reopening the terminal does not start the
+ * test; an explicit S character is still required.
  *
  * The MDD10A has no motor-supply status output connected to the Pico. Firmware
  * cannot electrically prove that motor power is present, so the S command is
@@ -64,14 +66,16 @@
  * consistently, and the wheels stop during every pause. Unexpected motion
  * indicates a pin-map, wiring, direction, or motor-driver problem.
  *
- * After the sequence, the firmware leaves both outputs stopped and loops
- * forever; it does not repeat automatically. Remove motor power, then flash
- * pico/build/wanderer_pico.uf2 to restore the normal robot firmware.
+ * After the sequence, the firmware leaves both outputs stopped and waits for
+ * another S command. Each command runs exactly one complete sequence. Remove
+ * motor power, then flash pico/build/wanderer_pico.uf2 to restore the normal
+ * robot firmware.
  */
 
 #include <stdio.h>
 
 #include "pico/stdlib.h"
+#include "pico/stdio_usb.h"
 
 #include "motor_output.h"
 #include "motors.h"
@@ -85,6 +89,20 @@
 #define START_DELAY_MS 5000
 #define RUN_MS 1000
 #define PAUSE_MS 1000
+
+/*
+ * USB enumeration alone does not mean a terminal is ready. Wait until the host
+ * opens the CDC serial port so the operator sees the complete safety prompt.
+ * Motor PWM has already been initialized to zero before this function runs.
+ */
+static void wait_for_usb_serial(void) {
+    while (!stdio_usb_connected()) {
+        sleep_ms(10);
+    }
+
+    /* Give the terminal time to finish opening before sending the first text. */
+    sleep_ms(100);
+}
 
 /*
  * Keep the outputs stopped until the operator confirms that motor power is on.
@@ -121,6 +139,15 @@ static void run_step(const char *name, int8_t left_direction, int8_t right_direc
     sleep_ms(PAUSE_MS);
 }
 
+static void run_test_sequence(void) {
+    run_step("LEFT forward", +1, 0);
+    run_step("LEFT reverse", -1, 0);
+    run_step("RIGHT forward", 0, +1);
+    run_step("RIGHT reverse", 0, -1);
+    run_step("BOTH forward", +1, +1);
+    run_step("BOTH reverse", -1, -1);
+}
+
 int main(void) {
     stdio_init_all();
 
@@ -131,27 +158,24 @@ int main(void) {
      */
     motors_init();
 
+    wait_for_usb_serial();
     printf("\nWanderer motor hardware test\n");
-    wait_for_operator_arm();
 
-    /*
-     * Reassert zero PWM after arming, then allow time to abort before the first
-     * movement. GPIO and PWM were already configured by motors_init() at boot.
-     */
-    motors_stop();
-    printf("Test starts in 5 seconds. Remove motor power now to abort.\n");
-    sleep_ms(START_DELAY_MS);
-
-    run_step("LEFT forward", +1, 0);
-    run_step("LEFT reverse", -1, 0);
-    run_step("RIGHT forward", 0, +1);
-    run_step("RIGHT reverse", 0, -1);
-    run_step("BOTH forward", +1, +1);
-    run_step("BOTH reverse", -1, -1);
-
-    motors_stop();
-    printf("Test complete; outputs are stopped.\n");
     while (true) {
-        tight_loop_contents();
+        /*
+         * Every iteration begins stopped. After arming, allow time to remove
+         * motor power before the first movement if the command was accidental.
+         */
+        motors_stop();
+        wait_for_operator_arm();
+
+        motors_stop();
+        printf("Test starts in 5 seconds. Remove motor power now to abort.\n");
+        sleep_ms(START_DELAY_MS);
+
+        run_test_sequence();
+
+        motors_stop();
+        printf("Test complete; outputs are stopped.\n\n");
     }
 }

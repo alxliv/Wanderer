@@ -88,24 +88,28 @@ creates `pico/build/wanderer_motor_test.uf2`, which is the file to flash onto
 the Pico.
 
 Before flashing this image, raise and secure the chassis so both wheels turn
-freely. Connect a 115200-baud UART terminal to UART0 (GP0 TX, GP1 RX, and
-common ground), then enable motor power and type `S` to arm the test. USB serial
-is disabled, and the test waits indefinitely for this UART command.
+freely. After the Pico reboots, open the USB CDC serial port that appears on the
+development computer. No USB-to-UART adapter or GP0/GP1 wiring is required.
+The firmware waits until a terminal opens this port; then enable motor power
+and type `S` to arm the test. A 115200-baud terminal setting is conventional,
+although USB CDC does not use a physical UART baud rate.
 
 The MDD10A does not provide the Pico with a motor-power-good signal, so firmware
 cannot automatically detect whether its motor supply is present. Typing `S` is
 the operator's confirmation that motor power is on. After arming, a final
 5-second delay allows the operator to remove motor power and abort.
 
-The test then runs this one-shot sequence at 30% PWM:
+Each `S` command runs this complete sequence once at 30% PWM:
 
 1. Left forward, then reverse
 2. Right forward, then reverse
 3. Both forward, then reverse
 
 Each movement lasts one second with a one-second stopped interval. The firmware
-then leaves both outputs stopped. This test confirms wiring and visible motor
-operation; the unit test alone cannot prove that a physical motor turns.
+then leaves both outputs stopped and waits for another `S` command, allowing
+the sequence to be repeated without reflashing or resetting the Pico. This test
+confirms wiring and visible motor operation; the unit test alone cannot prove
+that a physical motor turns.
 
 After the hardware test, flash `wanderer_pico.uf2` again for normal operation.
 Normal firmware only drives the motors when `MOTOR_ENABLE` is set and
@@ -119,7 +123,8 @@ copy `wanderer_pico.uf2` onto it. (Or use `picotool load`.)
 ## Debug console
 `printf` output is on **UART0** (GP0 = TX, GP1 = RX) at 115200 baud — connect a
 USB-serial adapter. USB-CDC stdio is disabled so it doesn't interfere with the
-BOOTSEL workflow; switch it in `CMakeLists.txt` if preferred.
+BOOTSEL workflow. This applies to the normal `wanderer_pico` firmware; the
+separate `wanderer_motor_test` firmware uses USB CDC serial for its arm command.
 
 ## Layout
 | File | Purpose |
