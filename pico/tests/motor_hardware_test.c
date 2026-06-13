@@ -85,7 +85,7 @@
  * Keep this low enough for a safe bench test while still overcoming the
  * motors' starting friction.
  */
-#define TEST_MAX_DUTY_PER_MILLE 300u
+#define TEST_MAX_DUTY_PER_MILLE 400u // 40 % duty cycle
 #define START_DELAY_MS 5000
 #define RUN_MS 1000
 #define PAUSE_MS 1000
