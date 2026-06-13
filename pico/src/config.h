@@ -38,7 +38,7 @@
  */
 #define ENC_LEFT_PIN_BASE  10    /* left:  GP10 (A), GP11 (B) */
 #define ENC_RIGHT_PIN_BASE 12    /* right: GP12 (A), GP13 (B) */
-#define ENC_LEFT_SIGN       1
+#define ENC_LEFT_SIGN      -1
 #define ENC_RIGHT_SIGN      1
 
 /* ---- Control loop ---- */

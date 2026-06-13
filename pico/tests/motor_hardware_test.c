@@ -87,7 +87,7 @@
  * Keep this low enough for a safe bench test while still overcoming the
  * motors' starting friction.
  */
-#define TEST_MAX_DUTY_PER_MILLE 400u
+#define TEST_MAX_DUTY_PER_MILLE 600u
 #define START_DELAY_MS 5000
 #define RUN_MS 1000
 #define PAUSE_MS 1000
@@ -189,6 +189,7 @@ int main(void) {
     wait_for_usb_serial();
     printf("\nWanderer motor hardware test\n");
 
+
     while (true) {
         /*
          * Every iteration begins stopped. After arming, allow time to remove
@@ -196,7 +197,18 @@ int main(void) {
          */
         motors_stop();
         wait_for_operator_arm();
-
+#if 0
+        encoders_reset();
+        printf("Turn wheel. You have 10 seconds!\n");
+        for (int t = 0; t<60; t++)
+        {
+            sleep_ms(1000);
+            encoder_sample_t stopped = encoders_sample();
+            printf("[%d] : L=%ld, R=%ld\n", t,
+                (long)stopped.left_ticks, (long)stopped.right_ticks);
+        }
+        printf("all done\n");
+#else
         motors_stop();
         printf("Test starts in 5 seconds. Remove motor power now to abort.\n");
         sleep_ms(START_DELAY_MS);
@@ -205,5 +217,7 @@ int main(void) {
 
         motors_stop();
         printf("Test complete; outputs are stopped.\n\n");
+#endif
     }
+
 }
