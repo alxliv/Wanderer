@@ -1,0 +1,25 @@
+;
+; Test-only ordered quadrature state recorder.
+;
+; One state machine watches one encoder's A/B pair. It pushes a two-bit state
+; only when that state changes. DMA writes the ordered sequence into RAM, where
+; the test can independently classify valid and illegal transitions.
+;
+.pio_version 0
+
+.program encoder_state_trace
+
+.wrap_target
+public sample:
+    MOV ISR, NULL
+    IN PINS, 2
+    MOV Y, ISR
+    JMP X!=Y, changed
+    JMP sample
+
+changed:
+    MOV X, Y
+    MOV ISR, Y
+    PUSH block
+.wrap
+
