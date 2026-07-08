@@ -102,8 +102,14 @@ _Static_assert(RUN_MS % ENCODER_REPORT_MS == 0,
  * Motor PWM has already been initialized to zero before this function runs.
  */
 static void wait_for_usb_serial(void) {
+    absolute_time_t next_led_toggle = make_timeout_time_ms(250);
     while (!stdio_usb_connected()) {
         sleep_ms(10);
+        if (time_reached(next_led_toggle)) {
+            gpio_xor_mask(1u << PICO_DEFAULT_LED_PIN);
+            next_led_toggle = make_timeout_time_ms(250);
+        }
+
     }
 
     /* Give the terminal time to finish opening before sending the first text. */
@@ -118,6 +124,7 @@ static void wait_for_usb_serial(void) {
 static void wait_for_operator_arm(void) {
     printf("Motor outputs are stopped.\n");
     printf("Raise and secure the robot, enable motor power, then type S to start.\n");
+    absolute_time_t next_led_toggle = make_timeout_time_ms(500);
 
     while (true) {
         int input = getchar_timeout_us(0);
@@ -125,6 +132,11 @@ static void wait_for_operator_arm(void) {
             printf("Start command received.\n");
             return;
         }
+        if (time_reached(next_led_toggle)) {
+            gpio_xor_mask(1u << PICO_DEFAULT_LED_PIN);
+            next_led_toggle = make_timeout_time_ms(500);
+        }
+
         tight_loop_contents();
     }
 }
@@ -177,6 +189,10 @@ static void run_test_sequence(void) {
 
 int main(void) {
     stdio_init_all();
+
+    gpio_init(PICO_DEFAULT_LED_PIN);
+    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+    gpio_put(PICO_DEFAULT_LED_PIN, false);
 
     /*
      * Initialize immediately so PWM is held low even while motor power is off.
