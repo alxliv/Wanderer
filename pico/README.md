@@ -1,25 +1,7 @@
 # Wanderer — Pico 2 firmware (reflexive layer)
 
-C/C++ firmware for the Raspberry Pi Pico 2 (RP2350). Drives the motors, reads
-quadrature encoders, and exposes the
-[I²C register interface](../protocol/i2c_registers.md) to the tactical host
-(Zero 2 W). PID velocity control, ToF sensing, and obstacle reflexes are later
-Phase 2 steps.
-
-## Status — Phase 2
-- ✅ I²C peripheral (slave @ `0x42`) exposing the full register space
-- ✅ Register-pointer access model with read snapshotting + command-apply-on-STOP
-- ✅ 100 Hz control-loop scaffold
-- ✅ Command watchdog (stops on host silence) + `CONTROL_FLAGS` handling
-- ✅ Cytron MDD10A open-loop motor PWM/DIR control in `DIRECT_PWM` mode
-- ✅ Quadrature encoders (PIO) → velocity & odometry telemetry
-- ⬜ Per-wheel PID
-- ⬜ VL53L0X ToF + obstacle reflex
-
-## Prerequisites
-- **Raspberry Pi Pico SDK ≥ 2.0.0** (required for RP2350 / `pico2`)
-- ARM GNU toolchain (`arm-none-eabi-gcc`), CMake ≥ 3.13, Ninja (or Make)
-- `PICO_SDK_PATH` set to your SDK checkout (or pass `-DPICO_SDK_FETCH_FROM_GIT=ON`)
+C/C++ firmware for the Raspberry Pi Pico 2 (RP2350). Drives the motors and reads
+motors quadrature encoders.
 
 ## Build
 
@@ -31,9 +13,6 @@ cmake --build build
 ```
 
 ### This machine (Windows / PowerShell, run from the repo root)
-The ARM toolchain isn't on PATH, and the SDK's picotool source build fails here
-(it grabs an incompatible host clang++) — so prepend the toolchain and point at the
-installed picotool.
 
 One-time configure:
 ```powershell
