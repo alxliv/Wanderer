@@ -1,23 +1,13 @@
 /*
- * Wanderer reflexive layer (Pico 2 / RP2350) - pin map & tunable defaults.
+ * Wanderer airframe (Pico 2 / RP2350) - pin map & tunable defaults.
  *
  * Pin assignments are the firmware's source of truth; keep hardware/wiring.md
- * in sync with this file. Calibration/PID defaults below are also exposed over
- * I2C (CONFIG block) so they can be tuned live without reflashing.
+ * in sync with this file.
  */
 #ifndef WANDERER_CONFIG_H
 #define WANDERER_CONFIG_H
 
-#include "hardware/i2c.h"
-
-/* ---- I2C1: peripheral to the tactical host / Zero 2 W (host = master) ---- */
-#define PI_I2C            i2c1
-#define PI_SDA_PIN        6     /* GP6  (I2C1 SDA) */
-#define PI_SCL_PIN        7     /* GP7  (I2C1 SCL) */
-#define PI_I2C_BAUD       100000 /* 100 kHz default; 400 kHz once validated */
-
 /* ---- I2C0: master to VL53L0X ToF (wired in the ToF step) ---- */
-#define TOF_I2C           i2c0
 #define TOF_SDA_PIN       4     /* GP4  (I2C0 SDA) */
 #define TOF_SCL_PIN       5     /* GP5  (I2C0 SCL) */
 #define TOF_XSHUT_PIN     8     /* GP8  (optional reset/boot control, O5) */
@@ -44,7 +34,7 @@
 /* ---- Control loop ---- */
 #define CONTROL_HZ        100   /* reflexive control-loop rate */
 
-/* ---- Tunable defaults (mirrored into the I2C CONFIG block at boot) ---- */
+/* ---- Tunable defaults ---- */
 #define DEFAULT_TICKS_PER_METER  10000.0f /* x4 edge count; calibrate */
 #define DEFAULT_PID_KP           0.5f
 #define DEFAULT_PID_KI           0.1f
