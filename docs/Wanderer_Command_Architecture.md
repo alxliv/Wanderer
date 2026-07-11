@@ -63,6 +63,15 @@ The Base reaches the Pilot by one of two transports:
 The cockpit interface (Pi5 ↔ Pico2) is **invariant** to which transport ATC uses
 to reach the Pilot. Same pilot, same cockpit, two ways for ATC to reach the cabin.
 
+That the Base↔Pilot command path currently shares the nRF24 channel with
+telemetry is **convenience, not architecture** — one radio happens to carry
+both. The Pilot could be reached by other means (WiFi today; anything else
+later) without telemetry changing at all. And as in real aviation, lost comms
+is an issue but not a critical one: ATC may stop receiving the squawk, the
+pilot may lose the ATC frequency — the aircraft keeps flying and executes its
+mission. Wanderer's control chain (Pilot ↔ airframe, over local UART) never
+depends on the RF link being up.
+
 ### The Pico2 wears two separate hats
 
 These must be kept strictly distinct — conflating them invites bugs:
@@ -151,6 +160,20 @@ currents, FSM state, active-procedure status, reflex flags, faults. This is for
 supervision, logging, testing, and debug. It is **broadcast, not a command
 channel** — ATC receiving the squawk does not become the pilot. This sits
 entirely inside the ATC metaphor and threatens none of the layering.
+
+Telemetry's ground rules, explicit because they shape everything downstream:
+
+- **The airframe decides what to send.** Telemetry is whatever the Pico2
+  chooses to radiate; the Base tunes in, it does not order the content.
+- **Monitoring only — never decision-making.** No control path, on any layer,
+  consumes telemetry. It exists for human eyes, logs, and test rigs.
+- **Best-effort by design.** The RF link is unreliable and that is fine. Lost
+  telemetry is a nuisance, not an emergency: nothing anywhere depends on it
+  arriving. No telemetry is *not a big deal*.
+- **Nobody inside the rover reads it.** The Pilot does not consume the
+  telemetry stream; it pulls what it needs over the cockpit as queries
+  (request/response) and receives asynchronous events (§5). Telemetry flows
+  outward, to the Base, full stop.
 
 ### System backdoor — privileged out-of-band commands (maintenance hatch)
 
@@ -265,9 +288,14 @@ Examples:
 - Comms-loss deadman → FALLBACK.
 
 Plus existing housekeeping: arm / disarm / e-stop / stop / brake; info / fault /
-parameter queries; and the free ~100 Hz telemetry stream — which now also carries
-**active-procedure status** and **reflex flags** alongside pose, currents,
-voltage, and FSM state, so the Pilot always sees what the airframe is doing.
+parameter queries. The cockpit is a dependable request/response channel — every
+command is answered at once — plus asynchronous events (the `!`-sigil pattern)
+for what the airframe must report on its own initiative: state changes,
+procedure completions, reflex fires, faults. **Nothing streams through the
+cockpit.** The Pilot pulls state and odometry by query, at its own cadence; the
+~100 Hz telemetry broadcast (pose, currents, voltage, FSM state,
+active-procedure status, reflex flags) goes out the transponder to the Base
+(§3a), not to the Pilot.
 
 ---
 
@@ -328,9 +356,11 @@ sequences stay on the Pi5.
 - **Inner wheel-velocity loop is forced onto the Pico2** — the Pi5's non-real-time
   scheduling cannot reliably close it. The cockpit's primary control surface is
   therefore *velocity*, not raw PWM.
-- **Odometry lives on the Pico2** (it has the encoders and the real-time loop) and
-  streams in telemetry. Be clear-eyed that Pico-only dead reckoning *drifts* — it
-  is a *seed* for the Pi5 to fuse with the map, not real localization.
+- **Odometry lives on the Pico2** (it has the encoders and the real-time loop).
+  The Pilot polls it over the cockpit at its own cadence; it also radiates to
+  the Base in transponder telemetry. Be clear-eyed that Pico-only dead
+  reckoning *drifts* — it is a *seed* for the Pi5 to fuse with the map, not
+  real localization.
 
 ---
 
@@ -344,7 +374,9 @@ self-terminating relative maneuvers, and always-on reflexes — and never knows 
 plan it serves. The Base sees the airframe directly only through a *transponder*
 (broadcast telemetry) and a privileged *system backdoor* (emergency overrides,
 link/system config, dev diagnostics, reboot-the-Pilot) — neither of which is a
-flight interface. The line between Pilot and airframe is not complexity but
+flight interface. Telemetry is monitoring only — best-effort, consumed by no
+control path, and its loss (like a radio dropout in flight) is never critical:
+the mission continues. The line between Pilot and airframe is not complexity but
 judgment: *if a task needs to know where it is in the world or what is around it,
 it is the Pilot's; if it only needs to hold a number true against the body's own
 senses, it is the airframe's.* Concrete commands will be designed to populate the
