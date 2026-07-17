@@ -1,13 +1,10 @@
-"""The Cockpit class — the Pilot's hands on the airframe.
+"""Blocking commands and asynchronous events for controlling the airframe.
 
-Every method is blocking request/response: it returns the airframe's answer
-immediately or raises (see errors.py). Airframe-initiated events are
-delivered via callbacks registered with `on_event()`, from a dedicated
-dispatcher thread so a slow handler can never stall the link's reader.
+Commands return the airframe's response or raise an error from ``errors.py``.
+Airframe events are delivered to callbacks registered with ``on_event()``.
+Callbacks run on a dispatcher thread, separate from the link reader.
 
-Units at this boundary are SI floats (m/s, rad/s, meters): the API speaks
-the planner's language. Whatever integer millimeter encoding the wire uses
-is the link's business.
+The API uses SI units. The link handles wire-format conversions.
 """
 
 import queue
@@ -20,14 +17,13 @@ from .errors import CockpitLinkError
 from .events import Event, EventHandler, TacticalState
 from .link import CockpitLink, Reply, Request
 
-# The cockpit answers at once; a miss means the channel is in trouble.
+# Maximum time to wait for a command response.
 DEFAULT_COMMAND_TIMEOUT_S = 0.1
 
 
 @dataclass(frozen=True)
 class Odometry:
-    """Dead-reckoning seed pulled from the airframe (it drifts — fuse it,
-    don't trust it; docs/Wanderer_Command_Architecture.md §8)."""
+    """Encoder tick counts and wheel speeds reported by the airframe."""
 
     left_ticks: int
     right_ticks: int
@@ -42,13 +38,11 @@ class FirmwareVersion:
 
 
 class Cockpit:
-    """Blocking command interface + event callbacks over one CockpitLink.
+    """Blocking command interface and event callbacks over one link.
 
-    Thread-safety: commands may be issued from any thread; they are
-    serialized (single in-flight command, matching the link contract).
-    Event handlers run on the dispatcher thread — keep them quick and
-    never issue cockpit commands from inside one (hand off to your own
-    loop instead).
+    Commands are thread-safe and execute one at a time. Event handlers run on
+    the dispatcher thread; they should return quickly and must not issue
+    cockpit commands.
     """
 
     def __init__(self, link: CockpitLink, *,
@@ -62,7 +56,7 @@ class Cockpit:
         self._dispatcher: Optional[threading.Thread] = None
         self._open = False
 
-    # ---- lifecycle ----------------------------------------------------
+    # Lifecycle
 
     def open(self) -> None:
         if self._open:
@@ -79,7 +73,7 @@ class Cockpit:
             return
         self._open = False
         self._link.close()
-        self._event_queue.put(None)  # wake and end the dispatcher
+        self._event_queue.put(None)  # Stop the dispatcher.
         if self._dispatcher is not None:
             self._dispatcher.join(timeout=1.0)
             self._dispatcher = None
@@ -91,14 +85,14 @@ class Cockpit:
     def __exit__(self, *exc) -> None:
         self.close()
 
-    # ---- events --------------------------------------------------------
+    # Events
 
     def on_event(self, handler: EventHandler,
                  event_type: Optional[Type[Event]] = None) -> Callable[[], None]:
         """Register a callback for airframe events.
 
-        `event_type=None` receives everything; otherwise only instances of
-        that type. Returns an unsubscribe function.
+        If ``event_type`` is omitted, the callback receives every event.
+        Returns a function that unregisters the callback.
         """
         entry = (event_type, handler)
         with self._handlers_lock:
@@ -111,54 +105,51 @@ class Cockpit:
 
         return unsubscribe
 
-    # ---- housekeeping ----------------------------------------------------
+    # State management
 
     def ping(self) -> None:
-        """No-op that refreshes the Pilot's liveness lease.
+        """Refresh the Pilot's liveness lease without changing state.
 
-        While driving, the velocity stream itself keeps the lease; ping is
-        for holding the cockpit's attention during quiet thinking phases.
-        (Deliberately not automated: the deadman must reflect the Pilot's
-        real health, so only the Pilot's own loop feeds it.)
+        Drive commands refresh the lease during motion. Call ``ping()`` during
+        idle periods. This is intentionally not automatic so the deadman can
+        detect an unresponsive Pilot.
         """
         self._execute(_link.OP_PING)
 
     def arm(self) -> None:
-        """SAFE -> ACTIVE. No motion starts until drive() is called."""
+        """Enter ACTIVE state without starting motion."""
         self._execute(_link.OP_ARM)
 
     def disarm(self) -> None:
-        """Back to SAFE from any movement-capable state; refused in FAULT."""
+        """Enter SAFE state. The airframe refuses this command in FAULT."""
         self._execute(_link.OP_DISARM)
 
     def estop(self) -> None:
-        """Latch an emergency-stop fault: motors gate off *now*, and stay
-        off until clear_fault(). Honored in every state."""
+        """Stop the motors and latch FAULT until ``clear_fault()`` succeeds."""
         self._execute(_link.OP_ESTOP)
 
     def clear_fault(self) -> None:
-        """Clear a latched fault -> SAFE. Nacked while the condition persists."""
+        """Clear FAULT and enter SAFE if the fault condition is gone."""
         self._execute(_link.OP_CLEAR_FAULT)
 
-    # ---- tier 1: the control surface -------------------------------------
+    # Motion control
 
     def drive(self, linear_m_s: float, angular_rad_s: float) -> None:
-        """Set the standing body-velocity order (skid steer: no strafe).
+        """Set the forward and angular velocity command.
 
-        The airframe holds this until superseded. A fresh drive() is also
-        the only thing that resumes from FALLBACK — the Pilot must
-        re-assert intent, the airframe never silently re-accelerates.
-        Nacked when not armed.
+        The command remains active until replaced. After FALLBACK, only a new
+        ``drive()`` command resumes motion. The airframe rejects this command
+        unless it is armed.
         """
         self._execute(_link.OP_DRIVE,
                       linear_m_s=float(linear_m_s),
                       angular_rad_s=float(angular_rad_s))
 
     def stop(self) -> None:
-        """Zero the standing velocity order. Stays ACTIVE (unlike disarm)."""
+        """Set velocity to zero while remaining ACTIVE."""
         self._execute(_link.OP_STOP)
 
-    # ---- queries (the Pilot pulls; nothing streams) -----------------------
+    # Queries
 
     def state(self) -> TacticalState:
         reply = self._execute(_link.OP_GET_STATE)
@@ -175,7 +166,7 @@ class Cockpit:
         return FirmwareVersion(major=reply.values["major"],
                                minor=reply.values["minor"])
 
-    # ---- internals ---------------------------------------------------------
+    # Internal helpers
 
     def _execute(self, op: str, **params) -> Reply:
         if not self._open:
@@ -195,7 +186,6 @@ class Cockpit:
                     try:
                         handler(event)
                     except Exception:
-                        # A pilot bug in one handler must not kill delivery
-                        # to the others or the dispatcher itself.
+                        # Keep dispatching if a handler fails.
                         import traceback
                         traceback.print_exc()
