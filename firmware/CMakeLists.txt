@@ -16,9 +16,9 @@ pico_sdk_init()
 include(${CMAKE_CURRENT_LIST_DIR}/lib/RF24/CMakeLists.txt)
 
 # Shared across all firmware targets: RF binary protocol frames and the
-# TacticalCore FSM. Header-only for now.
-add_library(wanderer_common INTERFACE)
-target_include_directories(wanderer_common INTERFACE ${CMAKE_CURRENT_LIST_DIR}/common)
+# TacticalCore FSM.
+add_library(wanderer_common STATIC common/tactical.cpp)
+target_include_directories(wanderer_common PUBLIC ${CMAKE_CURRENT_LIST_DIR}/common)
 
 add_subdirectory(airframe)
 add_subdirectory(rflink)

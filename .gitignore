@@ -5,6 +5,7 @@ build/
 *.uf2
 *.bin
 *.hex
+*.exe
 
 # Python
 __pycache__/

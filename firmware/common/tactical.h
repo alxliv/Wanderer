@@ -1,128 +1,69 @@
 #pragma once
-#include <cstdint>
-#include "pico/time.h"     // absolute_time_t, get_absolute_time, diff/make/timeout
+#include <stdint.h>
 #include "protocol.h"      // rf_protocol::TacticalState
 
 using rf_protocol::TacticalState;
 
-// Silence that separates a normal link blip from real loss. Set well above the
-// worst expected gap on the link in use (a few NOP polls on nRF24; seconds on
-// an acoustic analog). This is the one knob that defines "loss".
+// Silence that separates a normal link blip from real loss.
 constexpr uint32_t LIVENESS_TIMEOUT_MS  = 750;
 constexpr int32_t  FALLBACK_DECEL_MM_S2 = 800;   // bounded decel in (mm/s)/s
 
-// The Wanderer's vehicle state, modeled as an explicit FSM. It owns the
-// commanded targets and the arm/stop/fault gating; the radio layer feeds it
-// commands and reads its outputs.
-class TacticalCore {
-public:
-    // Liveness: ANY valid frame from ANY commander, regardless of type (NOP
-    // included). Fed at the transport boundary, not per command -- "a commander
-    // is talking to me" is separate from "what it asked for".
-    void note_commander_alive(absolute_time_t now) { last_seen_ = now; }
+// Latched fault codes. Grows with Tier 3 (overcurrent, tilt, ...).
+#define FAULT_NONE   0
+#define FAULT_ESTOP  1
 
-    // True while a commander frame has been heard within the liveness window --
-    // the same "link is good" test tick() uses before falling back. Read by the
-    // radio layer to drive the Wanderer's link-status LED. False until the first
-    // frame, since last_seen_ starts at the epoch.
-    bool commander_alive(absolute_time_t now) const {
-        return absolute_time_diff_us(last_seen_, now) <
-               static_cast<int64_t>(LIVENESS_TIMEOUT_MS) * 1000;
-    }
+// Command retcodes. 0 = success; negative = refused, one code per reason in
+// the cockpit spec's error registry (protocol/cockpit_protocol.md, section 6/7).
+#define TAC_OK                  0
+#define TAC_ERR_NOT_ARMED      -1
+#define TAC_ERR_FAULT_LATCHED  -2
+#define TAC_ERR_NO_FAULT       -3
+#define TAC_ERR_FAULT_PERSISTS -4
 
-    void cmd_arm(absolute_time_t now) {
-        if (state_ == TacticalState::Safe) enter(TacticalState::Active, now);
-    }
+// The Wanderer's vehicle FSM. One vehicle, one FSM: this is a module with
+// internal state, not a class -- there is never a second instance.
+//
+// The current state IS a pointer to its state
+// function; transitions assign the next function. Commands are plain calls
+// returning a retcode; state functions run on tac_tick() and hold only the
+// time-driven behavior (deadman, fallback ramp).
+//
+// No hardware or OS dependencies: time comes in as a caller-supplied
+// microsecond timestamp (`to_us_since_boot(get_absolute_time())` on the Pico,
+// anything monotonic in host tests), so the module unit-tests on the host.
 
-    // stop disarms to Safe from either movement-capable state; refused only
-    // while a fault is latched (clear it first).
-    void cmd_stop(absolute_time_t now) {
-        if (state_ != TacticalState::Fault) enter(TacticalState::Safe, now);
-    }
+// Reset to power-on state (SAFE, everything zero). Call once at boot;
+// tests call it between cases. Keeps registered callbacks.
+void tac_init(void);
 
-    bool cmd_move(int16_t left, int16_t right, absolute_time_t now) {
-        // A fresh steering command is the ONLY thing that resumes from Fallback:
-        // the commander must re-assert intent, never silently re-accelerate.
-        if (state_ == TacticalState::Fallback) enter(TacticalState::Active, now);
-        if (state_ != TacticalState::Active) return false;   // Safe / Fault: ignore
-        cmd_left_  = left;
-        cmd_right_ = right;
-        return true;
-    }
+// Observation, for the protocol layer to emit `!state` / `!fault` lines.
+// The fault code is latched before the callback fires, so on a transition to
+// Fault the handler reads it via tac_fault_code(). May be NULL.
+typedef void (*tac_state_cb)(TacticalState from, TacticalState to);
+void tac_set_change_state_callback(tac_state_cb on_change_state);
 
-    void raise_fault(uint16_t code, absolute_time_t now) {
-        fault_code_ = code;
-        enter(TacticalState::Fault, now);
-    }
-    bool clear_fault(bool condition_cleared, absolute_time_t now) {
-        if (state_ == TacticalState::Fault && condition_cleared) {
-            fault_code_ = 0;
-            enter(TacticalState::Safe, now);
-            return true;
-        }
-        return false;   // refused while the condition persists
-    }
+// Commands (cockpit spec section 6, one function per row).
+int tac_arm(void);
+int tac_disarm(void);
+int tac_stop(void);                              // zero velocity, REMAIN Active
+int tac_drive(int16_t left_mm_s, int16_t right_mm_s);
+int tac_estop(void);                             // = tac_raise_fault(FAULT_ESTOP)
+int tac_raise_fault(uint16_t code);              // never refused; reflexes call this
+int tac_clear_fault(bool condition_cleared);
 
-    // Periodic. Drives the liveness check and the Fallback ramp. Call every loop.
-    void tick(absolute_time_t now) {
-        if (state_ == TacticalState::Active &&
-            absolute_time_diff_us(last_seen_, now) >
-                static_cast<int64_t>(LIVENESS_TIMEOUT_MS) * 1000) {
-            enter(TacticalState::Fallback, now);
-        } else if (state_ == TacticalState::Fallback) {
-            ramp_toward_zero(now);
-        }
-        last_tick_ = now;
-    }
+// Retcode -> wire reason token, for the cockpit `=err` line.
+const char *tac_strerror(int rc);
 
-    // --- the FSM's only outputs; the motor/control layer consumes these ---
-    bool motors_enabled() const {
-        return state_ == TacticalState::Active || state_ == TacticalState::Fallback;
-    }
-    int16_t target_left()  const { return output(cmd_left_,  ramp_left_);  }
-    int16_t target_right() const { return output(cmd_right_, ramp_right_); }
-    TacticalState state() const { return state_; }
+// Liveness: ANY valid commander frame, fed at the transport boundary.
+void tac_note_commander_alive(uint64_t now_us);
+bool is_tac_commander_alive(uint64_t now_us);
 
-private:
-    void enter(TacticalState next, absolute_time_t now) {
-        if (next == state_) return;
-        if (next == TacticalState::Fallback) {       // seed the ramp from the standing order
-            ramp_left_  = cmd_left_;
-            ramp_right_ = cmd_right_;
-        }
-        if (next == TacticalState::Safe || next == TacticalState::Fault) {
-            cmd_left_ = cmd_right_ = ramp_left_ = ramp_right_ = 0;
-        }
-        state_     = next;
-        last_tick_ = now;
-        on_transition(next);                          // event seam (see below)
-    }
+// Periodic: run the current state function. Call every loop.
+void tac_tick(uint64_t now_us);
 
-    int16_t output(int16_t cmd, int16_t ramp) const {
-        if (state_ == TacticalState::Active)   return cmd;
-        if (state_ == TacticalState::Fallback) return ramp;
-        return 0;                                     // Safe / Fault gate to zero
-    }
-
-    void ramp_toward_zero(absolute_time_t now) {
-        const int64_t dt_us = absolute_time_diff_us(last_tick_, now);
-        const int32_t step  = static_cast<int32_t>(
-            static_cast<int64_t>(FALLBACK_DECEL_MM_S2) * dt_us / 1000000);
-        ramp_left_  = decay(ramp_left_,  step);
-        ramp_right_ = decay(ramp_right_, step);
-    }
-    static int16_t decay(int16_t v, int32_t step) {
-        if (v > 0) return static_cast<int16_t>(v >  step ? v - step : 0);
-        if (v < 0) return static_cast<int16_t>(-v > step ? v + step : 0);
-        return 0;
-    }
-
-    void on_transition(TacticalState) {}   // stage one: log; later: push an event frame
-
-    TacticalState   state_     = TacticalState::Safe;
-    int16_t cmd_left_  = 0, cmd_right_  = 0;   // standing order
-    int16_t ramp_left_ = 0, ramp_right_ = 0;   // Fallback ramp output
-    uint16_t fault_code_ = 0;
-    absolute_time_t last_seen_ = {};           // liveness clock
-    absolute_time_t last_tick_ = {};
-};
+// Outputs; the motor layer consumes these.
+bool          tac_motors_enabled(void);
+int16_t       tac_target_left(void);
+int16_t       tac_target_right(void);
+TacticalState tac_state(void);
+uint16_t      tac_fault_code(void);
