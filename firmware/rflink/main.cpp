@@ -149,7 +149,7 @@ SPI radio_spi;
 // nRF24 ACK payloads. Telemetry is the default heartbeat; query replies are
 // queued here and sent ahead of telemetry so they are never overwritten. This
 // is radio-layer staging, not vehicle state, so it lives alongside
-// radio/radio_spi rather than inside the TacticalCore.
+// radio/radio_spi rather than inside the tactical module.
 struct rfFrame {
     uint8_t length;
     uint8_t bytes[rf_protocol::MAX_PAYLOAD_SIZE];
@@ -246,33 +246,33 @@ bool configure_radio(Role role) {
 // Maps the FSM state to the wire flag bits shared by telemetry and GETSTAT.
 // WAND_MOVING means actually moving (motors live with a non-zero target),
 // distinct from WAND_ARMED (motors live, allowed to move). This is reporting
-// code, not vehicle state, so it reads the TacticalCore rather than living
+// code, not vehicle state, so it reads the tactical module rather than living
 // inside it. The full FSM state also rides telemetry as tactical_state.
-uint8_t wanderer_flags(const TacticalCore *core) {
+uint8_t wanderer_flags(void) {
     uint8_t flags = 0;
-    if (core->motors_enabled()) {
+    if (tac_motors_enabled()) {
         flags |= rf_protocol::WAND_ARMED;
     }
-    if (core->motors_enabled() &&
-        (core->target_left() != 0 || core->target_right() != 0)) {
+    if (tac_motors_enabled() &&
+        (tac_target_left() != 0 || tac_target_right() != 0)) {
         flags |= rf_protocol::WAND_MOVING;
     }
     return flags;
 }
 
 // Assembles the telemetry heartbeat from every source that contributes to it.
-// Today that is just the TacticalCore's FSM state and command-state flags;
+// Today that is just the tactical FSM state and command-state flags;
 // battery, odometry, and the rest get folded in here as their hardware lands.
-// It lives outside the TacticalCore precisely because telemetry aggregates
+// It lives outside the tactical module precisely because telemetry aggregates
 // multiple sources. The sequence counter belongs to the telemetry stream, not
 // the vehicle, so it lives here too.
-rf_protocol::Telemetry build_telemetry(const TacticalCore *core) {
+rf_protocol::Telemetry build_telemetry(void) {
     static uint8_t sequence = 0;
     rf_protocol::Telemetry telemetry{};
     telemetry.type = rf_protocol::REPLY_TELEMETRY;
     telemetry.sequence = sequence++;
-    telemetry.flags = wanderer_flags(core);
-    telemetry.tactical_state = static_cast<uint8_t>(core->state());
+    telemetry.flags = wanderer_flags();
+    telemetry.tactical_state = static_cast<uint8_t>(tac_state());
     return telemetry;
 }
 
@@ -285,31 +285,30 @@ rf_protocol::Telemetry build_telemetry(const TacticalCore *core) {
 // telemetry heartbeat and is dropped from the queue whether or not the radio
 // accepts it -- we never re-transmit an ACK payload; the base re-asks if it
 // cares.
-bool stage_next_ack_payload(TacticalCore *core) {
+bool stage_next_ack_payload(void) {
     if (!rf_queue.empty()) {
         rfFrame frame = rf_queue.front();
         rf_queue.pop();
         return radio.writeAckPayload(RADIO_PIPE, frame.bytes, frame.length);
     }
 
-    rf_protocol::Telemetry telemetry = build_telemetry(core);
+    rf_protocol::Telemetry telemetry = build_telemetry();
     return radio.writeAckPayload(RADIO_PIPE, &telemetry, sizeof(telemetry));
 }
 
 // Discards whatever is already staged in the TX FIFO and stages a fresh
 // frame. Used after a state change so the next ACK reflects current state
 // rather than a payload built before the change.
-void restage_ack(TacticalCore *core) {
+void restage_ack(void) {
     radio.flush_tx();
-    stage_next_ack_payload(core);
+    stage_next_ack_payload();
 }
 
 // ---------------------------------------------------------------------------
 // Wanderer: command handling
 // ---------------------------------------------------------------------------
 
-bool handle_wanderer_command(const uint8_t *payload, uint8_t length,
-                             TacticalCore *core, absolute_time_t now) {
+bool handle_wanderer_command(const uint8_t *payload, uint8_t length) {
     // Never cast and trust arbitrary radio bytes. First verify the exact
     // length, then copy into the packed protocol structure.
     if (length < sizeof(rf_protocol::CommandHeader)) {
@@ -327,7 +326,7 @@ bool handle_wanderer_command(const uint8_t *payload, uint8_t length,
             if (length != sizeof(rf_protocol::CommandHeader)) {
                 return false;
             }
-            core->cmd_stop(now);
+            tac_disarm();   // RF CMD_STOP keeps its disarm meaning
             PRINTF("Command STOP seq=%u: disarmed, targets cleared\r\n",
                    header.sequence);
             return true;
@@ -336,7 +335,7 @@ bool handle_wanderer_command(const uint8_t *payload, uint8_t length,
             if (length != sizeof(rf_protocol::CommandHeader)) {
                 return false;
             }
-            core->cmd_arm(now);
+            tac_arm();
             PRINTF("Command ARM seq=%u: armed\r\n", header.sequence);
             return true;
 
@@ -346,8 +345,8 @@ bool handle_wanderer_command(const uint8_t *payload, uint8_t length,
             }
             rf_protocol::MoveCommand command{};
             std::memcpy(&command, payload, sizeof(command));
-            if (core->cmd_move(command.velocity_left_mm_s,
-                               command.velocity_right_mm_s, now)) {
+            if (tac_drive(command.velocity_left_mm_s,
+                          command.velocity_right_mm_s) == TAC_OK) {
                 PRINTF("Command MOVE seq=%u: left=%d right=%d mm/s\r\n",
                        command.header.sequence, command.velocity_left_mm_s,
                        command.velocity_right_mm_s);
@@ -381,9 +380,9 @@ bool handle_wanderer_command(const uint8_t *payload, uint8_t length,
             {
                 rf_protocol::StatReply reply{
                     rf_protocol::REPLY_STAT,
-                    wanderer_flags(core),
-                    core->target_left(),
-                    core->target_right(),
+                    wanderer_flags(),
+                    tac_target_left(),
+                    tac_target_right(),
                 };
                 rf_queue.push(&reply, sizeof(reply));
             }
@@ -433,7 +432,7 @@ bool handle_wanderer_command(const uint8_t *payload, uint8_t length,
     }
 }
 
-void process_wanderer_radio(TacticalCore *core) {
+void process_wanderer_radio(void) {
     // Drain every received command. The nRF24 hardware has already discarded
     // packets that failed its CRC before they can appear in this FIFO.
     uint8_t pipe = 0;
@@ -444,23 +443,22 @@ void process_wanderer_radio(TacticalCore *core) {
             // means it detected a corrupted R_RX_PL_WID read (a known nRF24
             // SPI erratum) and recovered. RX is already clean; only the
             // ACK-payload TX FIFO is still our responsibility.
-            restage_ack(core);
+            restage_ack();
             return;
         }
 
         uint8_t payload[rf_protocol::MAX_PAYLOAD_SIZE]{};
         radio.read(payload, length);
-        const absolute_time_t now = get_absolute_time();
-        core->note_commander_alive(now);
+        tac_note_commander_alive(to_us_since_boot(get_absolute_time()));
         if (pipe == RADIO_PIPE) {
-            handle_wanderer_command(payload, length, core, now);
+            handle_wanderer_command(payload, length);
         }
 
-        if (!stage_next_ack_payload(core)) {
+        if (!stage_next_ack_payload()) {
             // The ACK payload uses the three-entry TX FIFO. A failed queue
             // operation means stale entries filled it; discard them and put
             // back one fresh frame.
-            restage_ack(core);
+            restage_ack();
         }
     }
 }
@@ -866,23 +864,23 @@ void process_base_command_line(char *line, BaseState *state) {
 // process_base_command_line. Everything here acts directly on this board: read
 // commands report local state, arm/stop/move drive the FSM as if a commander
 // issued them, and setpa changes this radio's PA. No frame goes over the air.
-void process_wanderer_command_line(char *line, TacticalCore *core) {
+void process_wanderer_command_line(char *line) {
     char *token[4];
     int count = tokenize(line, token, 4);
     if (count == 0 || token[0][0] == '*') {
         return;
     }
     const char *verb = token[0];
-    const absolute_time_t now = get_absolute_time();
+    const uint64_t now_us = to_us_since_boot(get_absolute_time());
 
     if (token_is(verb, "arm")) {
         // A local command makes this console the live commander, so the FSM does
         // not immediately fall back for want of a remote one.
-        core->note_commander_alive(now);
-        core->cmd_arm(now);
+        tac_note_commander_alive(now_us);
+        tac_arm();
         PRINTF("=ok arm\r\n");
     } else if (token_is(verb, "stop")) {
-        core->cmd_stop(now);
+        tac_disarm();   // dev console mirrors RF vocabulary: stop = disarm
         PRINTF("=ok stop\r\n");
     } else if (token_is(verb, "move")) {
         int16_t left = 0;
@@ -892,8 +890,8 @@ void process_wanderer_command_line(char *line, TacticalCore *core) {
             PRINTF("=err move: expected 2 integers\r\n");
             return;
         }
-        core->note_commander_alive(now);
-        if (core->cmd_move(left, right, now)) {
+        tac_note_commander_alive(now_us);
+        if (tac_drive(left, right) == TAC_OK) {
             PRINTF("=ok move vL=%d vR=%d\r\n", left, right);
         } else {
             PRINTF("=err move: not active (arm first)\r\n");
@@ -902,19 +900,19 @@ void process_wanderer_command_line(char *line, TacticalCore *core) {
         PRINTF(">ver fw=%u.%u\r\n", FIRMWARE_MAJOR, FIRMWARE_MINOR);
         PRINTF("=ok ver\r\n");
     } else if (token_is(verb, "stat")) {
-        const uint8_t flags = wanderer_flags(core);
+        const uint8_t flags = wanderer_flags();
         PRINTF(">stat state=%s armed=%d moving=%d vL=%d vR=%d\r\n",
-               tactical_state_name(static_cast<uint8_t>(core->state())),
+               tactical_state_name(static_cast<uint8_t>(tac_state())),
                (flags & rf_protocol::WAND_ARMED) ? 1 : 0,
                (flags & rf_protocol::WAND_MOVING) ? 1 : 0,
-               core->target_left(), core->target_right());
+               tac_target_left(), tac_target_right());
         PRINTF("=ok stat\r\n");
     } else if (token_is(verb, "rf")) {
         // Local radio view. The Wanderer is a receiver, so it has no TX/ACK
         // counters like the base -- it reports its PA, channel, the last RPD,
         // and whether a commander has been heard within the liveness window.
         PRINTF(">rf link=%s pa=%u chan=%u rpd=%d\r\n",
-               core->commander_alive(now) ? "up" : "down", radio.getPALevel(),
+               is_tac_commander_alive(now_us) ? "up" : "down", radio.getPALevel(),
                radio.getChannel(), radio.testRPD() ? 1 : 0);
         PRINTF("=ok rf\r\n");
     } else if (token_is(verb, "setpa")) {
@@ -971,7 +969,8 @@ void base_line_handler(char *line, void *context) {
 }
 
 void wanderer_line_handler(char *line, void *context) {
-    process_wanderer_command_line(line, static_cast<TacticalCore *>(context));
+    (void)context;
+    process_wanderer_command_line(line);
 }
 
 }  // namespace
@@ -1014,13 +1013,13 @@ int main() {
         gpio_put(PIN_LINK_LED, false);
     }
 
-    TacticalCore wanderer;
+    tac_init();
     BaseState base;
 
     if (radio_ready && role == Role::Wanderer) {
         // Without this preload, the first base poll would receive an empty
         // ACK. Later frames are staged after each command is read.
-        stage_next_ack_payload(&wanderer);
+        stage_next_ack_payload();
         radio.startListening();
     }
 
@@ -1050,17 +1049,17 @@ int main() {
             // is gated on radio_ready; the FSM ticks regardless so locally
             // issued arm/move actually advance state and fall back on silence.
             if (stdio_usb_connected()) {
-                poll_usb_lines(wanderer_line_handler, &wanderer);
+                poll_usb_lines(wanderer_line_handler, nullptr);
             }
-            TacticalState before = wanderer.state();
+            TacticalState before = tac_state();
             if (radio_ready) {
-                process_wanderer_radio(&wanderer);
+                process_wanderer_radio();
             }
-            wanderer.tick(get_absolute_time());
-            if (wanderer.state() != before) {
+            tac_tick(to_us_since_boot(get_absolute_time()));
+            if (tac_state() != before) {
                 PRINTF("TacticalState changed. From %u to %u\r\n",
                        static_cast<unsigned>(before),
-                       static_cast<unsigned>(wanderer.state()));
+                       static_cast<unsigned>(tac_state()));
             }
         }
 
@@ -1075,7 +1074,7 @@ int main() {
                 radio_ready =
                     connected && radio.begin(&radio_spi) && configure_radio(role);
                 if (radio_ready && role == Role::Wanderer) {
-                    stage_next_ack_payload(&wanderer);
+                    stage_next_ack_payload();
                     radio.startListening();
                 }
                 PRINTF("*RF24: %s\r\n",
@@ -1094,7 +1093,8 @@ int main() {
         // the LED dark instead of freezing it mid-blink.
         if (role == Role::Wanderer) {
             bool link_up =
-                radio_ready && wanderer.commander_alive(get_absolute_time());
+                radio_ready &&
+                is_tac_commander_alive(to_us_since_boot(get_absolute_time()));
             if (!link_up) {
                 gpio_put(PIN_LINK_LED, false);
                 next_link_led_toggle = make_timeout_time_ms(LINK_LED_PERIOD_MS);
