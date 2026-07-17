@@ -380,7 +380,9 @@ bool handle_wanderer_command(const uint8_t *payload, uint8_t length) {
             {
                 rf_protocol::StatReply reply{
                     rf_protocol::REPLY_STAT,
+                    static_cast<uint8_t>(tac_state()),
                     wanderer_flags(),
+                    tac_fault_code(),
                     tac_target_left(),
                     tac_target_right(),
                 };
@@ -449,10 +451,8 @@ void process_wanderer_radio(void) {
 
         uint8_t payload[rf_protocol::MAX_PAYLOAD_SIZE]{};
         radio.read(payload, length);
-        tac_note_commander_alive(to_us_since_boot(get_absolute_time()));
-        if (pipe == RADIO_PIPE) {
-            handle_wanderer_command(payload, length);
-        }
+        if (pipe == RADIO_PIPE && handle_wanderer_command(payload, length))
+            tac_note_commander_alive(to_us_since_boot(get_absolute_time()));
 
         if (!stage_next_ack_payload()) {
             // The ACK payload uses the three-entry TX FIFO. A failed queue
@@ -540,7 +540,8 @@ void dispatch_downlink_frame(const uint8_t *payload, uint8_t length,
             }
             rf_protocol::StatReply stat{};
             std::memcpy(&stat, payload, sizeof(stat));
-            PRINTF(">stat armed=%d moving=%d vL=%d vR=%d\r\n",
+            PRINTF(">stat state=%s fault=%u armed=%d moving=%d vL=%d vR=%d\r\n",
+                   tactical_state_name(stat.tactical_state), stat.fault_code,
                    (stat.flags & rf_protocol::WAND_ARMED) ? 1 : 0,
                    (stat.flags & rf_protocol::WAND_MOVING) ? 1 : 0,
                    stat.target_left_mm_s, stat.target_right_mm_s);
@@ -901,8 +902,9 @@ void process_wanderer_command_line(char *line) {
         PRINTF("=ok ver\r\n");
     } else if (token_is(verb, "stat")) {
         const uint8_t flags = wanderer_flags();
-        PRINTF(">stat state=%s armed=%d moving=%d vL=%d vR=%d\r\n",
+        PRINTF(">stat state=%s fault=%u armed=%d moving=%d vL=%d vR=%d\r\n",
                tactical_state_name(static_cast<uint8_t>(tac_state())),
+               tac_fault_code(),
                (flags & rf_protocol::WAND_ARMED) ? 1 : 0,
                (flags & rf_protocol::WAND_MOVING) ? 1 : 0,
                tac_target_left(), tac_target_right());

@@ -349,22 +349,16 @@ not designed yet (arch §5, §7):
 
 ---
 
-## 11. Known deltas — code this spec obsoletes
+## 11. Implementation status
 
-Recorded per `protocol/README.md`'s rule (spec wins, fix the code):
+The tactical firmware now separates `stop` from `disarm`, refuses `arm` and
+`disarm` in FAULT, and exposes every state transition through a callback. The
+UART cockpit transport still needs to translate that callback into the §8 wire
+events.
 
-1. **`tactical.h` conflates stop and disarm.** `cmd_stop` today disarms to
-   SAFE (the RF-era `CMD_STOP`). The cockpit splits this into `stop`
-   (zero velocity, stay ACTIVE) and `disarm` (→ SAFE). `TacticalCore` needs
-   the two entry points.
-2. **`sim.py` silently no-ops `arm` and `disarm` in FAULT.** The spec refuses
-   both with `fault_latched` (§6): a Pilot must never believe it armed a
-   faulted airframe. Fix the sim (and mirror in firmware).
-3. **`tactical.h` `on_transition()` is an empty seam.** It must emit `!state`
-   (and `!fault`) on the UART per §8.
-4. **`sim.py` `clear_fault`** always succeeds; firmware carries the
-   `condition_cleared` check. The sim should model `fault_persists` once a
-   simulated persistent fault exists (Tier 3 work).
+One known simulator delta remains: **`sim.py` `clear_fault`** always succeeds,
+while firmware checks `condition_cleared`. The simulator should model
+`fault_persists` once a simulated persistent fault exists (Tier 3 work).
 
 ---
 

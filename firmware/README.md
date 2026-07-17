@@ -17,7 +17,7 @@ both dissolving `rflink`. The old I2C-cockpit main is parked in
 
 | Path | Purpose |
 |---|---|
-| `common/` | Shared C++ headers: `protocol.h` (RF binary frames), `tactical.h` (TacticalCore FSM) |
+| `common/` | Shared C++: `protocol.h` (RF binary frames), `tactical.h/.cpp` (tactical FSM) |
 | `airframe/src/` | Rover drivers: MDD10A motors, PIO quadrature encoders, pin map (`config.h`) |
 | `airframe/tests/` | Host unit tests + the motor hardware test source |
 | `airframe/legacy/` | Superseded I2C-cockpit firmware, kept as reference |

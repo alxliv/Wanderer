@@ -97,12 +97,13 @@ struct __attribute__((packed)) VersionReply {
     uint8_t firmware_minor;
 };
 
-// Reply to CMD_GETSTAT: the Wanderer's current commanded state. This is the
-// proper channel for "is it armed / what is it doing", as opposed to the
-// telemetry heartbeat which is one-way monitoring.
+// Reply to CMD_GETSTAT: the complete tactical status. fault_code is FAULT_NONE
+// outside FAULT and otherwise identifies the first cause latched.
 struct __attribute__((packed)) StatReply {
     uint8_t type;
+    uint8_t tactical_state;
     uint8_t flags;
+    uint16_t fault_code;
     int16_t target_left_mm_s;
     int16_t target_right_mm_s;
 };
@@ -120,7 +121,7 @@ static_assert(sizeof(MoveCommand) == 6);
 static_assert(sizeof(SetPaCommand) == 3);
 static_assert(sizeof(Telemetry) == 4);
 static_assert(sizeof(VersionReply) == 3);
-static_assert(sizeof(StatReply) == 6);
+static_assert(sizeof(StatReply) == 9);
 static_assert(sizeof(PaReply) == 2);
 
 static_assert(sizeof(CommandHeader) <= MAX_PAYLOAD_SIZE);

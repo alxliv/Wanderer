@@ -4,8 +4,8 @@
 // Run:    ./test_tactical        (exit code 0 = all pass)
 //
 // Part 1 walks every command cell of the matrix (rows = commands, columns =
-// states). The "queries" row never reaches the FSM -- it is wire-level,
-// tested in the Python suite. Part 2 covers what the matrix cannot express:
+// states). The "queries" row never reaches the FSM and is excluded here.
+// Part 2 covers what the matrix cannot express:
 // deadman timing, the fallback ramp, callback order.
 
 #include <stdint.h>
@@ -170,11 +170,11 @@ static void run_dynamics(void)
         now += (LIVENESS_TIMEOUT_MS + 10) * 1000ull;
         tac_tick(now);
         CHECK(tac_state() == TacticalState::Fallback, "lease lapse -> FALLBACK");
-        CHECK(tac_target_left() == 400, "ramp seeded from standing order");
+        CHECK(tac_target_left() == 392, "overdue ramp applied on transition");
 
         now += 100000;   // 100 ms at 800 mm/s^2 => 80 mm/s off
         tac_tick(now);
-        CHECK(tac_target_left() == 320 && tac_target_right() == -320, "ramp step");
+        CHECK(tac_target_left() == 312 && tac_target_right() == -312, "ramp step");
         CHECK(tac_motors_enabled(), "motors stay enabled through FALLBACK");
 
         for (int i = 0; i < 10; i++) { now += 100000; tac_tick(now); }
@@ -208,15 +208,33 @@ static void run_dynamics(void)
               "code readable inside the callback");
         CHECK(tac_fault_code() == FAULT_ESTOP, "code latched");
 
-        // Re-raise while latched: code updates, no notifications.
+        // Re-raise while latched: the first cause is preserved.
         rec_clear();
         tac_raise_fault(7);
         CHECK(rec_count == 0, "re-raise in FAULT notifies nothing");
-        CHECK(tac_fault_code() == 7, "re-raise keeps latest code");
+        CHECK(tac_fault_code() == FAULT_ESTOP, "re-raise preserves first code");
 
         tac_clear_fault(true);
         CHECK(tac_state() == TacticalState::Safe && tac_fault_code() == FAULT_NONE,
               "clear resets code");
+    }
+    // FAULT_NONE is not a valid cause and must not enter FAULT.
+    {
+        enter(TacticalState::Safe);
+        CHECK(tac_raise_fault(FAULT_NONE) == TAC_ERR_INVALID_FAULT,
+              "zero fault code refused");
+        CHECK(tac_state() == TacticalState::Safe, "zero fault leaves state unchanged");
+        CHECK(tac_fault_code() == FAULT_NONE, "zero fault leaves code unchanged");
+    }
+    // A late tick accounts for time elapsed beyond the lease deadline.
+    {
+        uint64_t now = enter(TacticalState::Active);
+        tac_drive(400, -400);
+        now += (LIVENESS_TIMEOUT_MS + 250) * 1000ull;
+        tac_tick(now);
+        CHECK(tac_state() == TacticalState::Fallback, "late tick enters FALLBACK");
+        CHECK(tac_target_left() == 200 && tac_target_right() == -200,
+              "late tick applies overdue deceleration");
     }
     // stop in ACTIVE: velocity zero, still armed.
     {
@@ -229,6 +247,7 @@ static void run_dynamics(void)
     // tac_strerror maps retcodes to wire reasons.
     {
         CHECK(tac_strerror(TAC_ERR_NOT_ARMED)[0] == 'n', "strerror not_armed");
+        CHECK(tac_strerror(TAC_ERR_INVALID_FAULT)[0] == 'i', "strerror invalid_fault");
     }
 }
 

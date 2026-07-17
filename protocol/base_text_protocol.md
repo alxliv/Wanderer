@@ -154,7 +154,7 @@ preferred on this channel because readability is the point.
 | Reply  | Fields                              | Source            |
 |--------|-------------------------------------|-------------------|
 | `>ver` | `fw=<major>.<minor>`                | Wanderer firmware |
-| `>stat`| `armed=<0/1> moving=<0/1> vL=<int> vR=<int>` | Wanderer  |
+| `>stat`| `state=<name> fault=<uint16> armed=<0/1> moving=<0/1> vL=<int> vR=<int>` | Wanderer  |
 | `>rf`  | `link=<up/down> sent=<n> ok=<n> lost=<n> arc=<0-15> rpd=<0/1> chan=<n> pa_base=<0-3>` | Base (local) |
 | `>pa`  | `=<0-3>` (i.e. `>pa=2`)             | Wanderer firmware |
 
@@ -219,7 +219,7 @@ match the base's own power, set `setbpa` to taste.)
 ```
 #seq=412 state=ACTIVE armed=1 moving=1
 >ver fw=0.1
->stat armed=1 moving=1 vL=120 vR=-120
+>stat state=ACTIVE fault=0 armed=1 moving=1 vL=120 vR=-120
 =ok move vL=120 vR=-120
 =err unknown command: mve
 =err move: expected 2 integers
@@ -313,7 +313,7 @@ Laptop -> Base (bare verbs):
 
 Base -> Laptop (sigil + payload):
   =  result      =ok <verb> ...        =err <reason>
-  >  data reply  >ver fw=...            >stat armed=.. moving=.. vL=.. vR=..
+  >  data reply  >ver fw=...            >stat state=.. fault=.. armed=.. moving=.. vL=.. vR=..
                  >rf link=.. sent=.. ok=.. lost=.. arc=.. rpd=.. chan=.. pa_base=..
                  >pa=..  (Wanderer PA, follows an `rf` query a poll later)
   #  telemetry   #seq=.. state=.. armed=.. moving=..

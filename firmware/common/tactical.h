@@ -19,14 +19,13 @@ constexpr int32_t  FALLBACK_DECEL_MM_S2 = 800;   // bounded decel in (mm/s)/s
 #define TAC_ERR_FAULT_LATCHED  -2
 #define TAC_ERR_NO_FAULT       -3
 #define TAC_ERR_FAULT_PERSISTS -4
+#define TAC_ERR_INVALID_FAULT  -5
 
 // The Wanderer's vehicle FSM. One vehicle, one FSM: this is a module with
 // internal state, not a class -- there is never a second instance.
 //
-// The current state IS a pointer to its state
-// function; transitions assign the next function. Commands are plain calls
-// returning a retcode; state functions run on tac_tick() and hold only the
-// time-driven behavior (deadman, fallback ramp).
+// Commands are plain calls returning a retcode. tac_tick() dispatches the
+// current state's time-driven behavior (deadman and fallback ramp).
 //
 // No hardware or OS dependencies: time comes in as a caller-supplied
 // microsecond timestamp (`to_us_since_boot(get_absolute_time())` on the Pico,
@@ -48,7 +47,7 @@ int tac_disarm(void);
 int tac_stop(void);                              // zero velocity, REMAIN Active
 int tac_drive(int16_t left_mm_s, int16_t right_mm_s);
 int tac_estop(void);                             // = tac_raise_fault(FAULT_ESTOP)
-int tac_raise_fault(uint16_t code);              // never refused; reflexes call this
+int tac_raise_fault(uint16_t code);              // rejects FAULT_NONE; first cause wins
 int tac_clear_fault(bool condition_cleared);
 
 // Retcode -> wire reason token, for the cockpit `=err` line.
