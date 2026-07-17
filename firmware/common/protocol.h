@@ -6,6 +6,19 @@
 
 namespace rf_protocol {
 
+// The wire format is raw little-endian struct images: packed structs are
+// memcpy'd onto the air as-is. Every intended host is little-endian (RP2350,
+// x86-64, aarch64 Linux), so no byte-swapping is done anywhere -- this check
+// turns that silent assumption into a compile-time guarantee.
+#if defined(__BYTE_ORDER__)
+static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
+              "rf_protocol wire format requires a little-endian host");
+#elif defined(_MSC_VER)
+// MSVC only targets little-endian platforms; nothing to check.
+#else
+#error "Cannot determine host endianness; rf_protocol assumes little-endian"
+#endif
+
 constexpr std::size_t MAX_PAYLOAD_SIZE = 32;
 
 // Base -> Wanderer. Commands set goals (MOVE/STOP/ARM) or ask a question
