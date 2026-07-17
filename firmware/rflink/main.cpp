@@ -968,6 +968,16 @@ void base_line_handler(char *line, void *context) {
     process_base_command_line(line, static_cast<BaseState *>(context));
 }
 
+// Per-transition report from the tactical FSM, registered at boot. The FSM
+// fires this for every transition whatever the cause (command, deadman, later
+// reflexes) -- unlike the old poll-and-diff in the main loop, it cannot miss
+// a transition or merge two that land in one loop iteration.
+void on_tactical_state_change(TacticalState from, TacticalState to) {
+    PRINTF("*state from=%s to=%s\r\n",
+           tactical_state_name(static_cast<uint8_t>(from)),
+           tactical_state_name(static_cast<uint8_t>(to)));
+}
+
 void wanderer_line_handler(char *line, void *context) {
     (void)context;
     process_wanderer_command_line(line);
@@ -1014,6 +1024,7 @@ int main() {
     }
 
     tac_init();
+    tac_set_change_state_callback(on_tactical_state_change);
     BaseState base;
 
     if (radio_ready && role == Role::Wanderer) {
@@ -1051,16 +1062,10 @@ int main() {
             if (stdio_usb_connected()) {
                 poll_usb_lines(wanderer_line_handler, nullptr);
             }
-            TacticalState before = tac_state();
             if (radio_ready) {
                 process_wanderer_radio();
             }
             tac_tick(to_us_since_boot(get_absolute_time()));
-            if (tac_state() != before) {
-                PRINTF("TacticalState changed. From %u to %u\r\n",
-                       static_cast<unsigned>(before),
-                       static_cast<unsigned>(tac_state()));
-            }
         }
 
         if (time_reached(next_radio_health)) {
