@@ -1,6 +1,6 @@
 """A simulated airframe behind the CockpitLink interface.
 
-Mirrors the TacticalCore FSM (firmware/common/tactical.h): Safe / Active /
+Mirrors the tactical FSM (firmware/common/tactical.h/.cpp): Safe / Active /
 Fallback / Fault, liveness fed by any valid command, fallback on commander
 silence, resume only on a fresh drive. It is both a test double for pilot
 code and an executable statement of what the real UART link + firmware must
@@ -74,18 +74,22 @@ class SimulatedCockpitLink(CockpitLink):
         if op == _link.OP_PING:
             return Reply()
         if op == _link.OP_ARM:
+            if self._state == TacticalState.FAULT:
+                raise CockpitNack("fault_latched", "clear the fault first")
             if self._state == TacticalState.SAFE:
                 self._enter(TacticalState.ACTIVE)
-            return Reply()
+            return Reply()  # ACTIVE/FALLBACK: no-op ok; arm never exits FALLBACK
         if op == _link.OP_DISARM:
             if self._state == TacticalState.FAULT:
                 raise CockpitNack("fault_latched", "clear the fault first")
             self._enter(TacticalState.SAFE)
             return Reply()
         if op == _link.OP_ESTOP:
+            if self._state == TacticalState.FAULT:
+                return Reply()  # re-raise: first cause preserved, no events
             self._fault_code = FAULT_ESTOP
+            self._emit(FaultRaised(code=FAULT_ESTOP))  # `!fault` before `!state`
             self._enter(TacticalState.FAULT)
-            self._emit(FaultRaised(code=FAULT_ESTOP))
             return Reply()
         if op == _link.OP_CLEAR_FAULT:
             if self._state != TacticalState.FAULT:
