@@ -17,7 +17,10 @@ include(${CMAKE_CURRENT_LIST_DIR}/lib/RF24/CMakeLists.txt)
 
 # Shared across all firmware targets: RF binary protocol frames and the
 # TacticalCore FSM.
-add_library(wanderer_common STATIC common/tactical.cpp)
+add_library(wanderer_common STATIC
+    common/tactical.cpp
+    common/cockpit_codec.cpp
+)
 target_include_directories(wanderer_common PUBLIC ${CMAKE_CURRENT_LIST_DIR}/common)
 
 add_subdirectory(airframe)

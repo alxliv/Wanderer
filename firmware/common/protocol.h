@@ -52,15 +52,20 @@ enum TelemetryFlag : uint8_t {
     WAND_ARMED = 1u << 1,
 };
 
+// Wire structs are byte-packed via #pragma pack, which GCC, Clang and MSVC
+// all honor (GCC's is not portable to MSVC). The
+// sizeof static_asserts below prove the packing took effect on any compiler.
+#pragma pack(push, 1)
+
 // Every command starts with this header. Header-only commands (NOP, STOP, ARM,
 // GETVER, GETSTAT) are sent as a bare CommandHeader; commands that carry
 // arguments embed it as their first member.
-struct __attribute__((packed)) CommandHeader {
+struct CommandHeader {
     uint8_t type;
     uint8_t sequence;
 };
 
-struct __attribute__((packed)) MoveCommand {
+struct MoveCommand {
     CommandHeader header;
     int16_t velocity_left_mm_s;
     int16_t velocity_right_mm_s;
@@ -69,7 +74,7 @@ struct __attribute__((packed)) MoveCommand {
 // CMD_SETPA: ask the Wanderer to set its nRF24 PA level (0 = MIN .. 3 = MAX).
 // "Try to set" -- the Wanderer applies it and answers with a PaReply carrying
 // the level actually in effect.
-struct __attribute__((packed)) SetPaCommand {
+struct SetPaCommand {
     CommandHeader header;
     uint8_t pa_level;
 };
@@ -84,14 +89,14 @@ enum class TacticalState : uint8_t {
 // The continuous monitoring heartbeat. It currently carries only the sequence
 // (for gap/rate stats) and the state flags. Real sensor fields (battery,
 // encoders, velocity, ...) are added here when that hardware exists.
-struct __attribute__((packed)) Telemetry {
+struct Telemetry {
     uint8_t type;
     uint8_t sequence;
     uint8_t tactical_state;
     uint8_t flags;
 };
 
-struct __attribute__((packed)) VersionReply {
+struct VersionReply {
     uint8_t type;
     uint8_t firmware_major;
     uint8_t firmware_minor;
@@ -99,7 +104,7 @@ struct __attribute__((packed)) VersionReply {
 
 // Reply to CMD_GETSTAT: the complete tactical status. fault_code is FAULT_NONE
 // outside FAULT and otherwise identifies the first cause latched.
-struct __attribute__((packed)) StatReply {
+struct StatReply {
     uint8_t type;
     uint8_t tactical_state;
     uint8_t flags;
@@ -111,10 +116,12 @@ struct __attribute__((packed)) StatReply {
 // Reply to CMD_GETPA: the Wanderer's own nRF24 PA level (0 = MIN .. 3 = MAX).
 // PA rarely changes, so it is queried on demand rather than carried in every
 // telemetry frame.
-struct __attribute__((packed)) PaReply {
+struct PaReply {
     uint8_t type;
     uint8_t pa_level;
 };
+
+#pragma pack(pop)
 
 static_assert(sizeof(CommandHeader) == 2);
 static_assert(sizeof(MoveCommand) == 6);

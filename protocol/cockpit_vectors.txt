@@ -1,0 +1,91 @@
+# Golden wire vectors for the cockpit protocol.
+# Spec: protocol/cockpit_protocol.md (sections 2, 3, 8).
+# Consumed by BOTH test suites; a change here fails whichever side disagrees:
+#   firmware/common/tests/test_codec.cpp   (airframe: parse in, format out)
+#   pilot/tests/test_wire_vectors.py       (pilot:    format out, parse in)
+# Lines starting with '#' and blank lines are ignored. Sections in [brackets].
+# Fields are separated by '|'. Trailing/leading spaces in fields are DATA.
+#
+# [parse]  airframe input classification + tokens
+#   line|request|tok0|tok1|...
+#   line|relay|payload
+#   line|ignore
+# [format] airframe output formatting
+#   ok|verb|fields|expected           (fields may be empty)
+#   err|verb|reason|detail|expected   (detail may be empty)
+#   state|from|to|expected
+#   fault|code|expected
+# [request] pilot request formatting (op + params -> wire line)
+#   ping|ping
+#   drive|linear|angular|expected
+# [downlink] pilot parsing of airframe lines
+#   line|ok|verb|k=v ...              (fields joined by spaces, may be empty)
+#   line|err|verb|reason|detail       (detail may be empty)
+#   line|state|from|to
+#   line|fault|code
+#   line|log|text
+#   line|relay|payload
+#   line|skip
+
+[parse]
+ping|request|ping
+arm|request|arm
+ARM|request|ARM
+get_state|request|get_state
+drive 0.250 -0.100|request|drive|0.250|-0.100
+  drive   0.250  -0.100  |request|drive|0.250|-0.100
+clear_fault|request|clear_fault
+^GOAL waypoint 12.5 -3.0|relay|GOAL waypoint 12.5 -3.0
+^|relay|
+*battery check due|ignore
+|ignore
+   |ignore
+=ok arm|ignore
+#seq=412 state=ACTIVE|ignore
+>stat armed=1|ignore
+!state from=SAFE to=ACTIVE|ignore
+
+[format]
+ok|ping||=ok ping
+ok|arm||=ok arm
+ok|get_state|state=ACTIVE|=ok get_state state=ACTIVE
+ok|get_state|state=FAULT fault=ESTOP|=ok get_state state=FAULT fault=ESTOP
+ok|get_odometry|lt=15320 rt=15294 vl=0.298 vr=0.301|=ok get_odometry lt=15320 rt=15294 vl=0.298 vr=0.301
+ok|get_version|fw=0.1|=ok get_version fw=0.1
+err|drive|not_armed|state is SAFE|=err drive not_armed state is SAFE
+err|stop|not_armed|state is FALLBACK|=err stop not_armed state is FALLBACK
+err|arm|fault_latched||=err arm fault_latched
+err|?|unknown_command|mve|=err ? unknown_command mve
+err|drive|bad_args|expected 2 numbers|=err drive bad_args expected 2 numbers
+err|?|line_too_long||=err ? line_too_long
+state|SAFE|ACTIVE|!state from=SAFE to=ACTIVE
+state|ACTIVE|FALLBACK|!state from=ACTIVE to=FALLBACK
+fault|ESTOP|!fault code=ESTOP
+
+[request]
+ping|ping
+arm|arm
+disarm|disarm
+estop|estop
+clear_fault|clear_fault
+stop|stop
+get_state|get_state
+get_odometry|get_odometry
+get_version|get_version
+drive|0.25|-0.1|drive 0.250 -0.100
+drive|0|0|drive 0.000 0.000
+drive|-0.333|1.5|drive -0.333 1.500
+
+[downlink]
+=ok ping|ok|ping|
+=ok get_state state=ACTIVE|ok|get_state|state=ACTIVE
+=ok get_odometry lt=15320 rt=15294 vl=0.298 vr=0.301|ok|get_odometry|lt=15320 rt=15294 vl=0.298 vr=0.301
+=err drive not_armed state is SAFE|err|drive|not_armed|state is SAFE
+=err arm fault_latched|err|arm|fault_latched|
+!state from=SAFE to=ACTIVE|state|SAFE|ACTIVE
+!state from=ACTIVE to=FALLBACK|state|ACTIVE|FALLBACK
+!fault code=ESTOP|fault|ESTOP
+*booted fw 0.1|log|booted fw 0.1
+^GOAL waypoint 12.5 -3.0|relay|GOAL waypoint 12.5 -3.0
+#seq=1 state=ACTIVE|skip
+>stat armed=1|skip
