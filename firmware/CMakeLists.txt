@@ -20,6 +20,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/lib/RF24/CMakeLists.txt)
 add_library(wanderer_common STATIC
     common/tactical.cpp
     common/cockpit_codec.cpp
+    common/cockpit_handler.cpp
 )
 target_include_directories(wanderer_common PUBLIC ${CMAKE_CURRENT_LIST_DIR}/common)
 

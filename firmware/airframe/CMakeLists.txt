@@ -2,9 +2,39 @@
 #
 # The previous I2C-cockpit firmware is parked in legacy/ (the architecture
 # moved the cockpit to UART — see docs/Wanderer_Command_Architecture.md §8).
-# The new airframe main target will be added as the command architecture is
-# implemented; until then the only flashable target here is the one-shot
-# motor bring-up test.
+# Targets: wanderer_airframe (the flight firmware -- UART cockpit, tactical
+# FSM, motors, encoders) and the one-shot motor bring-up test.
+
+# The airframe flight firmware. Cockpit protocol on UART0 (GP0/GP1, raw
+# lines, not stdio); bench logs on USB CDC.
+add_executable(wanderer_airframe
+    src/main.cpp
+    src/encoders.c
+    src/encoder_math.c
+    src/motor_output.c
+    src/motors.c
+)
+
+pico_generate_pio_header(wanderer_airframe
+    ${CMAKE_CURRENT_LIST_DIR}/src/quadrature_encoder.pio
+)
+
+target_include_directories(wanderer_airframe PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/src
+)
+
+target_link_libraries(wanderer_airframe
+    wanderer_common
+    pico_stdlib
+    hardware_clocks
+    hardware_pio
+    hardware_pwm
+    hardware_uart
+)
+
+pico_enable_stdio_uart(wanderer_airframe 0)
+pico_enable_stdio_usb(wanderer_airframe 1)
+pico_add_extra_outputs(wanderer_airframe)
 
 # Standalone, one-shot physical motor bring-up test. Flash only while the robot
 # is raised so its wheels can turn freely.

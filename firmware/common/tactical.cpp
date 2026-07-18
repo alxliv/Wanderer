@@ -135,6 +135,26 @@ const char *tac_strerror(int rc)
     return "unknown";
 }
 
+const char *tac_state_name(TacticalState s)
+{
+    switch (s) {
+    case TacticalState::Safe:     return "SAFE";
+    case TacticalState::Active:   return "ACTIVE";
+    case TacticalState::Fallback: return "FALLBACK";
+    case TacticalState::Fault:    return "FAULT";
+    }
+    return "?";
+}
+
+const char *tac_fault_name(uint16_t code)
+{
+    switch (code) {
+    case FAULT_NONE:  return "NONE";
+    case FAULT_ESTOP: return "ESTOP";
+    }
+    return "?";
+}
+
 // ---- liveness -------------------------------------------------------------
 
 void tac_note_commander_alive(uint64_t now_us)

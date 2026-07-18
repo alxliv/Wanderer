@@ -53,6 +53,10 @@ int tac_clear_fault(bool condition_cleared);
 // Retcode -> wire reason token, for the cockpit `=err` line.
 const char *tac_strerror(int rc);
 
+// Wire names for states and fault codes (cockpit spec sections 3, 8).
+const char *tac_state_name(TacticalState s);
+const char *tac_fault_name(uint16_t code);
+
 // Liveness: ANY valid commander frame, fed at the transport boundary.
 void tac_note_commander_alive(uint64_t now_us);
 bool is_tac_commander_alive(uint64_t now_us);
