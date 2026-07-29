@@ -49,6 +49,39 @@ Layout: `api.py` (Cockpit class), `link.py` (transport abstraction + op
 vocabulary), `events.py`, `errors.py`, `sim.py` (simulated airframe — an
 executable statement of what the firmware must do).
 
+## Health service (`health/`)
+
+The Pilot host runs `wanderer-health.service`, a systemd unit that answers one
+question without a laptop, an SSH session, or a screen: **is the Pilot board
+alive and fit to drive?**
+
+A shell monitor (`wanderer-health.sh`) polls every few seconds and checks the
+two things that actually strand the vehicle mid-run:
+
+- **Link** — Wi-Fi radio present and unblocked, associated, holding an IPv4
+  address and a default route, signal above the weak/fault dBm thresholds, and
+  (optionally) the Base PC answering a ping.
+- **Power** — `vcgencmd` undervoltage and throttling flags, both active and
+  historical, when that tool is available.
+
+The verdict is reported two ways:
+
+- **A common-cathode RGB LED** driven through the Linux LED subsystem —
+  green OK, yellow degraded, red fault, magenta undervoltage/throttling, blue
+  starting. LED off while the board's POWER LED is on means Linux or the
+  service itself is down. This is the readout that works when nothing else does.
+- **`/run/wanderer/health.env`**, rewritten atomically on every check, plus a
+  journal entry on each state change — so pilot code and `journalctl` can both
+  consume the same state.
+
+The script also runs one-shot (`--once --no-led`) and exits 0 / 1 / 2 for
+OK / WARN / FAULT, which is how the mocked test suite exercises it on a
+development PC with no Pi hardware.
+
+Setup — the `config.txt` LED overlays, package prerequisites, install commands,
+tunables in `/etc/default/wanderer-health`, signal bands, and the test harness —
+is documented in **[health/README.md](health/README.md)**.
+
 ## Tests
 
 ```sh
