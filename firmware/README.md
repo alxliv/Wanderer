@@ -5,20 +5,21 @@ RP2350 for now):
 
 | Target | Flashes onto | What it is |
 |---|---|---|
+| `wanderer_airframe` | rover Pico2 | **The flight firmware**: UART cockpit, tactical FSM, motors, encoders (see below) |
 | `wanderer_motor_test` | rover Pico2 | One-shot motor/encoder hardware bring-up test (see below) |
 | `wanderer_rflink` | either Pico2 | Transitional dual-role RF firmware from RF-Comms: ROLE pin (GP22) high = base dongle, low = vehicle side |
 
-Planned as the command architecture is implemented: a `wanderer_airframe`
-target (UART cockpit, procedures, reflexes) and a `wanderer_dongle` target,
-both dissolving `rflink`. The old I2C-cockpit main is parked in
-`airframe/legacy/`.
+Still planned as the command architecture is implemented: a `wanderer_dongle`
+target, which together with `wanderer_airframe` dissolves `rflink`. The old
+I2C-cockpit main is parked in `airframe/legacy/` and is not built.
 
 ## Layout
 
 | Path | Purpose |
 |---|---|
-| `common/` | Shared C++: `protocol.h` (RF binary frames), `tactical.h/.cpp` (tactical FSM) |
-| `airframe/src/` | Rover drivers: MDD10A motors, PIO quadrature encoders, pin map (`config.h`) |
+| `common/` | Shared C++: `cockpit_codec.h/.cpp` (cockpit line protocol), `cockpit_handler.h/.cpp` (command dispatch), `tactical.h/.cpp` (tactical FSM), `protocol.h` (RF binary frames) |
+| `common/tests/` | Host unit tests for the codec, handler, and FSM |
+| `airframe/src/` | Flight firmware `main.cpp` + rover drivers: MDD10A motors, PIO quadrature encoders, pin map (`config.h`) |
 | `airframe/tests/` | Host unit tests + the motor hardware test source |
 | `airframe/legacy/` | Superseded I2C-cockpit firmware, kept as reference |
 | `rflink/` | Imported working RF firmware (`main.cpp`) |
@@ -52,7 +53,8 @@ $tc = "$env:USERPROFILE\.pico-sdk\toolchain\14_2_Rel1\bin"; $env:PATH = "$tc;$en
 cmake --build firmware/build
 ```
 
-Outputs: `firmware/build/airframe/wanderer_motor_test.uf2`,
+Outputs: `firmware/build/airframe/wanderer_airframe.uf2`,
+`firmware/build/airframe/wanderer_motor_test.uf2`,
 `firmware/build/rflink/wanderer_rflink.uf2`.
 
 ## Flash
@@ -62,8 +64,10 @@ copy the `.uf2` onto it. (Or use `picotool load`.)
 
 ## Host unit tests
 
-Validate the MDD10A sign-magnitude direction mapping, PWM limits, and encoder
-tick-to-velocity conversion without a Pico:
+Two independent host test trees, both building without the Pico SDK.
+
+Airframe drivers — MDD10A sign-magnitude direction mapping, PWM limits, and
+encoder tick-to-velocity conversion:
 
 ```powershell
 cmake -S firmware/airframe/tests -B firmware/airframe/tests/build
@@ -71,8 +75,45 @@ cmake --build firmware/airframe/tests/build
 ctest --test-dir firmware/airframe/tests/build -C Debug --output-on-failure
 ```
 
+Shared cockpit + tactical code — line codec (checked against the golden wire
+vectors in `protocol/cockpit_vectors.txt`), command handler, and FSM:
+
+```powershell
+cmake -S firmware/common/tests -B build_common_tests
+cmake --build build_common_tests
+ctest --test-dir build_common_tests -C Debug --output-on-failure
+```
+
 `-C Debug` matches the configuration built by the multi-config Visual Studio
 generator used on this machine by default.
+
+## Airframe flight firmware (`wanderer_airframe`)
+
+The rover's tactical layer. Two separate serial paths, which are easy to
+confuse:
+
+| Path | Physical port | Carries |
+|---|---|---|
+| Cockpit | GP0 (TX) / GP1 (RX) — UART0, 3.3 V TTL, 115200 8N1 | Only cockpit protocol lines (`protocol/cockpit_protocol.md`) |
+| Bench log | the Pico's own micro-USB | USB CDC `printf` — boot line and debug `*` lines |
+
+`airframe/src/config.h` is the source of truth for pins and baud
+(`COCKPIT_*`); `hardware/wiring.md` mirrors it. Motor control is open loop for
+now — wheel target mm/s maps linearly to per-mille PWM.
+
+On boot the USB CDC port prints:
+
+```text
+*airframe fw 0.3 cockpit on uart0 @115200
+```
+
+To bring the link up against the pilot SBC for the first time — three wires
+plus the Linux-side serial console configuration, then a hand-typed session
+that exercises the FSM and deadman — follow
+[`docs/cockpit_bench_test.md`](../docs/cockpit_bench_test.md).
+
+**Wheels off the ground** whenever this firmware is running with motor power
+on: `drive` moves real motors.
 
 ## Motor hardware test (`wanderer_motor_test`)
 

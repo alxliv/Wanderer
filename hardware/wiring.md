@@ -1,26 +1,21 @@
 # Wanderer — Wiring & Pinouts
 
-> Draft. Concrete Pico GPIO numbers are assigned in Phase 2 and reflected here.
-> The counts/roles and Pico pin numbers below are assigned; keep them aligned with firmware.
+> Pico GPIO numbers are assigned and reflected here. Keep this file aligned
+> with the firmware; `firmware/airframe/src/config.h` wins any disagreement.
 
 ## Pico 2 (RP2350) GPIO summary
 
-The complete design reserves **15 header GPIOs**: 13 assigned in
-[`pico/src/config.h`](../pico/src/config.h), plus GP0/GP1 assigned to UART0 by
-[`pico/CMakeLists.txt`](../pico/CMakeLists.txt). The firmware also toggles the
-board-defined onboard LED GPIO, which is not an external wiring connection.
-
-`pico/src/config.h` is the source of truth for application pin assignments.
-Keep this table and the detailed connection tables below synchronized with it.
+The `wanderer_airframe` flight firmware uses **13 header GPIOs**, all assigned
+in [`firmware/airframe/src/config.h`](../firmware/airframe/src/config.h) — the
+source of truth for application pin assignments. Keep this table and the
+detailed connection tables below synchronized with it.
 
 | GPIO | Physical pin | Direction / function | Connected device and use | Status / source |
 |------|--------------|----------------------|--------------------------|-----------------|
-| GP0 | 1 | UART0 TX, output | Debug `printf` data to USB-serial adapter RX, 115200 baud | Active; `pico/CMakeLists.txt` |
-| GP1 | 2 | UART0 RX, input | Debug console receive from USB-serial adapter TX | Active; `pico/CMakeLists.txt` |
+| GP0 | 1 | UART0 TX, output | **Cockpit** protocol lines to pilot SBC RX (header pin 10), 115200 8N1 | Active; `COCKPIT_TX_PIN` |
+| GP1 | 2 | UART0 RX, input | **Cockpit** commands from pilot SBC TX (header pin 8) | Active; `COCKPIT_RX_PIN` |
 | GP4 | 6 | I²C0 SDA, bidirectional | VL53L0X front ToF data; Pico is I²C master | Reserved; `TOF_SDA_PIN` |
 | GP5 | 7 | I²C0 SCL, output | VL53L0X front ToF clock | Reserved; `TOF_SCL_PIN` |
-| GP6 | 9 | I²C1 SDA, bidirectional | Zero 2 W ↔ Pico command/telemetry data; Pico peripheral at `0x42` | Active; `PI_SDA_PIN` |
-| GP7 | 10 | I²C1 SCL, input | Clock from Zero 2 W I²C master | Active; `PI_SCL_PIN` |
 | GP8 | 11 | Digital output | VL53L0X `XSHUT` reset/enable | Reserved/optional; `TOF_XSHUT_PIN` |
 | GP10 | 14 | PIO digital input | Left MD520 encoder C1 / channel A | Active; `ENC_LEFT_PIN_BASE` |
 | GP11 | 15 | PIO digital input | Left MD520 encoder C2 / channel B | Active; `ENC_LEFT_PIN_BASE + 1` |
@@ -30,11 +25,14 @@ Keep this table and the detailed connection tables below synchronized with it.
 | GP17 | 22 | Digital output | MDD10A `DIR1`, left motor direction | Active; `M1_DIR_PIN` |
 | GP19 | 25 | PWM output | MDD10A `PWM2`, right motor speed at 20 kHz | Active; `M2_PWM_PIN` |
 | GP20 | 26 | Digital output | MDD10A `DIR2`, right motor direction | Active; `M2_DIR_PIN` |
-| Board LED GPIO | Not on header | Digital output | One-second firmware heartbeat | Active; `PICO_DEFAULT_LED_PIN` from board definition |
+| Board LED GPIO | Not on header | Digital output | Blinked by `wanderer_motor_test` only, not by the flight firmware | `PICO_DEFAULT_LED_PIN` from board definition |
 
 “Reserved” means the assignment exists in `config.h`, but that subsystem is not
 yet implemented in the current firmware. All other header GPIOs are presently
-unassigned. GP18 and GP21, formerly used by the L298N interface, are free.
+unassigned: GP18 and GP21 (formerly the L298N interface) and GP6/GP7 (formerly
+the I²C cockpit, see below) are free. Note that the `wanderer_rflink` firmware,
+a separate target, additionally claims GP22 as its ROLE pin plus the nRF24 SPI
+pins; the two firmwares are never flashed at the same time.
 
 PWM: RP2350 has 8 PWM slices / 16 channels; PWM1 (GP16) and PWM2 (GP19)
 use separate channels. The firmware uses 20 kHz, the MDD10A maximum.
@@ -43,8 +41,43 @@ quadrature counting. Each encoder's A/B must be a **consecutive GPIO pair**
 (base pin + 1). Firmware counts every valid A/B transition (x4 decoding), so
 `TICKS_PER_METER` calibration must use that same edge count. Forward wheel
 motion should produce positive ticks; use `ENC_LEFT_SIGN` and `ENC_RIGHT_SIGN`
-in `pico/src/config.h` to correct polarity without rewiring A/B.
-External **4.7 kΩ pull-ups** recommended on the Zero 2 W I²C bus (internal pull-ups are weak).
+in `firmware/airframe/src/config.h` to correct polarity without rewiring A/B.
+
+### Superseded: the I²C cockpit
+
+Earlier revisions of this document wired the pilot SBC to the Pico over **I²C1
+on GP6/GP7** with the Pico as a peripheral at address `0x42`. The command
+architecture moved the cockpit to **UART** (see
+[`docs/Wanderer_Command_Architecture.md`](../docs/Wanderer_Command_Architecture.md)
+§8). That firmware is parked, unbuilt, in `firmware/airframe/legacy/`. Do not
+wire GP6/GP7 to the pilot; use the UART cockpit below.
+
+## Cockpit UART — pilot SBC ↔ airframe Pico 2
+
+The flight interface: three wires, crossed. Both boards are 3.3 V logic, so
+they connect directly with no level shifter. Project convention calls the pilot
+SBC "RPI5" whatever board is fitted; **the header pins below are the same on a
+Pi 5 and a Zero 2 W**, only the Linux-side configuration differs.
+
+| Pilot 40-pin header | | Airframe Pico 2 |
+|---|---|---|
+| Pin 8 — GPIO14, **TXD** | → | **GP1**, physical pin 2 (UART0 RX) |
+| Pin 10 — GPIO15, **RXD** | ← | **GP0**, physical pin 1 (UART0 TX) |
+| Pin 6 — GND | — | any Pico GND (e.g. physical pin 3) |
+
+- TX→RX **crossover** on both signal wires. TX-to-TX is the classic silent
+  failure: both sides talk, nobody listens.
+- The GND wire is **not optional**, even with separately powered boards. A UART
+  is a voltage referenced to ground; this is the shared reference (consistent
+  with the starred-ground topology at the end of this file).
+- Connect **nothing** to either board's supply pins over this harness — each
+  board keeps its own power. The Pico's micro-USB carries a second, independent
+  bench-log path (USB CDC `printf`), separate from the cockpit.
+
+Enabling the header UART and — critically — disabling the Linux serial console
+on it, plus the hand-typed bring-up session, are covered in
+[`docs/cockpit_bench_test.md`](../docs/cockpit_bench_test.md). Pilot software
+always opens `/dev/serial0` so it survives a board swap.
 
 ## Cytron MDD10A Rev 2.0 connections
 
@@ -90,7 +123,7 @@ which physical wheel direction is forward.
 6. Optionally use the M1A/M1B and M2A/M2B test buttons with the chassis raised
    to confirm each motor and its lead orientation.
 7. Flash and run the motor hardware test described in
-   [`pico/README.md`](../pico/README.md#motor-tests).
+   [`firmware/README.md`](../firmware/README.md#motor-hardware-test-wanderer_motor_test).
 
 Because the motors face opposite sides of the chassis, one output lead pair may
 need to be swapped so that "BOTH forward" turns both wheels in the robot's
@@ -157,25 +190,27 @@ BMS P- ────────────────────────�
 
 Single sensor → default address 0x29, no collision handling needed yet.
 
-## Raspberry Pi Zero 2 W — I²C devices
+## Pilot SBC — I²C devices
 
 | Device | Address | Bus |
 |--------|---------|-----|
-| Pico 2 (peripheral) | 0x42 | dedicated bus? (O3) |
-| MinIMU-9 v6 — LSM6DSO | 0x6B | Zero I²C |
-| MinIMU-9 v6 — LIS3MDL | 0x1E | Zero I²C |
-| Pan-Tilt HAT | 0x15 | Zero I²C |
+| MinIMU-9 v6 — LSM6DSO | 0x6B | pilot I²C |
+| MinIMU-9 v6 — LIS3MDL | 0x1E | pilot I²C |
+| Pan-Tilt HAT | 0x15 | pilot I²C |
 
-No address conflicts. Pico may get its own I²C bus for isolation (O3).
-Camera Module 3 connects via the **Zero-specific narrow FFC cable** (22-pin 0.5 mm → 15-pin).
+No address conflicts. The Pico is **not** on this bus — it reaches the pilot
+over the cockpit UART.
+
+Camera Module 3 connects via the **Zero-specific narrow FFC cable** (22-pin 0.5 mm → 15-pin);
+a Pi 5 uses its own 22-pin cable instead.
 The Pan-Tilt HAT physically overhangs the small Zero board but mounts on the 40-pin header.
 
 ## 5 V power distribution
 
 | 5 V rail branch | Connects to | Notes |
 |-----------------|-------------|-------|
-| Zero 2 W | 5V + GND power input (O2) | GPIO 5V/GND recommended; micro-USB still open |
-| Pico 2 | VSYS + GND | separate branch from the rail; do not route through Zero |
+| Pilot SBC | 5V + GND power input (O2) | GPIO 5V/GND recommended; USB power input still open |
+| Pico 2 | VSYS + GND | separate branch from the rail; do not route through the pilot SBC |
 | Pan-Tilt servos | 5 V + GND | dominant transient load; keep bulk cap nearby |
 
 ## Grounding rule (repeat — it matters)
@@ -185,5 +220,8 @@ motor pack (–) ─┐
 logic pack (–) ─┤
 MDD10A POWER - ─┼── ONE common ground node
 Pico GND ───────┤
-Zero 2 W GND ───┘
+pilot SBC GND ──┘
 ```
+
+The cockpit UART's GND wire (header pin 6 → Pico GND) is part of this same
+single ground node, not a second path around it.

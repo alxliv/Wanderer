@@ -15,7 +15,7 @@ set(CMAKE_CXX_STANDARD 17)
 enable_testing()
 
 add_executable(test_tactical
-    ../test_tactical.cpp
+    test_tactical.cpp
     ../tactical.cpp
 )
 target_include_directories(test_tactical PRIVATE ..)
