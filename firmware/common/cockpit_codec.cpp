@@ -13,27 +13,32 @@ void line_asm_init(LineAssembler *a)
     a->len = 0;
     a->overflow = false;
     a->complete = false;
+    a->pair_skip = '\0';
     a->buf[0] = '\0';
 }
 
 bool line_asm_feed(LineAssembler *a, char c)
 {
-    if (a->complete)              // previous line was consumed; start fresh
+    if (a->complete) {            // previous line was consumed; start fresh
+        const char partner = a->pair_skip;
         line_asm_init(a);
+        if (c == partner)         // CRLF/LFCR is ONE terminator, not two
+            return false;
+    }
 
-    if (c == '\r')                // tolerated, never stored (spec section 2)
-        return false;
-
-    if (c == '\n') {
+    // Either terminator ends a line (spec section 2), so a bare terminal
+    // sending only CR on Enter needs no output mapping to drive the airframe.
+    if (c == '\r' || c == '\n') {
         if (a->overflow)
             a->buf[0] = '\0';     // report the overflow with an empty line
         else
             a->buf[a->len] = '\0';
+        a->pair_skip = (c == '\r') ? '\n' : '\r';
         a->complete = true;
         return true;
     }
 
-    if (a->overflow)              // discarding to the next newline
+    if (a->overflow)              // discarding to the next terminator
         return false;
 
     if (a->len >= CODEC_MAX_LINE - 1) {

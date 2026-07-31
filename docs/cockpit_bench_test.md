@@ -16,7 +16,7 @@ There are two separate serial paths in this setup — don't confuse them:
 
 | Path | Physical port | Protocol | Purpose |
 |---|---|---|---|
-| Cockpit | Pico2 GP0/GP1 (UART0, 3.3 V TTL) | cockpit text protocol | The flight interface under test |
+| Pico2 UART ↔ RPI5 UART | Pico2 GP0/GP1 (UART0, 3.3 V TTL) | cockpit text protocol | The flight interface under test |
 | Bench log | Pico2's own micro-USB connector | USB CDC (`printf` stdio) | Boot line + debug logs only |
 
 ---
@@ -121,11 +121,16 @@ Reading the session:
   them (spec §2 permits either order; this implementation emits the event
   from inside the command).
 - picocom does not echo your typing by default (`picocom --echo` if wanted).
-  Line endings don't matter — the airframe ignores `\r`, so CR, LF, or CRLF
-  all work. Exit with `Ctrl-A` then `Ctrl-X`.
+- Line endings need no configuration: the airframe terminates a line on `\r`,
+  `\n`, or `\r\n` alike (spec §2), and picocom sends a bare `\r` on Enter.
+  **No `--omap` is needed or wanted.**
+- **Exiting picocom:** `Ctrl-A` is only a *prefix* key, so pressing it alone
+  looks like a hang. Exit is `Ctrl-A` **then** `Ctrl-X`; `Ctrl-A` `Ctrl-H`
+  lists every command. `Ctrl-C` is *not* a picocom key — it goes down the wire
+  as byte `0x03`, which the airframe classifies as ignorable and drops.
 
 Meanwhile the Pico's own micro-USB (bench-log path) shows the boot line
-`*airframe fw 0.3 cockpit on uart0 @115200` on whatever host it's plugged
+`*airframe fw 0.3 cockpit on pico2 uart0 @115200` on whatever host it's plugged
 into — a second, independent window into the airframe.
 
 ## 4. Troubleshooting, in order

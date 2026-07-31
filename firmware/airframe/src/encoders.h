@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
     int32_t left_ticks;
     int32_t right_ticks;
@@ -24,5 +28,9 @@ void encoders_reset(void);
  * Counts use wrapping 32-bit arithmetic, matching the protocol's i32 fields.
  */
 encoder_sample_t encoders_sample(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* WANDERER_ENCODERS_H */

@@ -1,4 +1,4 @@
-// Wanderer airframe main -- the tactical layer behind the cockpit UART.
+// Wanderer airframe main -- the tactical layer behind the Pico2 UART.
 //
 // Wiring (all shared code, no logic of its own here):
 //   UART0 bytes  -> cockpit_feed() -> cockpit_handler -> tac_* (FSM)
@@ -11,7 +11,7 @@
 // constants already waiting in config.h) is its own upcoming step; nothing
 // in the cockpit protocol changes when it lands.
 //
-// stdio stays on USB CDC for bench logs (`*` lines); the cockpit UART
+// stdio stays on USB CDC for bench logs (`*` lines); the Pico2 UART
 // carries ONLY protocol lines.
 
 #include <stdio.h>
@@ -35,17 +35,17 @@ static uint64_t now_us(void)
 
 static void cockpit_line_out(const char *line)
 {
-    uart_puts(COCKPIT_UART, line);
-    uart_puts(COCKPIT_UART, "\r\n");
+    uart_puts(PICO2_UART, line);
+    uart_puts(PICO2_UART, "\r\n");
 }
 
-static void cockpit_uart_init(void)
+static void pico2_uart_init(void)
 {
-    uart_init(COCKPIT_UART, COCKPIT_BAUD);
-    gpio_set_function(COCKPIT_TX_PIN, GPIO_FUNC_UART);
-    gpio_set_function(COCKPIT_RX_PIN, GPIO_FUNC_UART);
-    uart_set_format(COCKPIT_UART, 8, 1, UART_PARITY_NONE);
-    uart_set_fifo_enabled(COCKPIT_UART, true);
+    uart_init(PICO2_UART, PICO2_UART_BAUD);
+    gpio_set_function(PICO2_UART_TX_PIN, GPIO_FUNC_UART);
+    gpio_set_function(PICO2_UART_RX_PIN, GPIO_FUNC_UART);
+    uart_set_format(PICO2_UART, 8, 1, UART_PARITY_NONE);
+    uart_set_fifo_enabled(PICO2_UART, true);
 }
 
 // ---- odometry --------------------------------------------------------------
@@ -78,7 +78,7 @@ int main(void)
 {
     stdio_init_all();          // USB CDC: bench logs only
 
-    cockpit_uart_init();
+    pico2_uart_init();
     motors_init();
     encoders_init();
     encoders_reset();
@@ -90,16 +90,16 @@ int main(void)
     // Relay sink deliberately not set: `^` payloads are dropped until the
     // RF modem hat lands (cockpit spec section 4).
 
-    printf("*airframe fw %u.%u cockpit on uart0 @%u\r\n",
-           FW_VERSION_MAJOR, FW_VERSION_MINOR, (unsigned)COCKPIT_BAUD);
+    printf("*airframe fw %u.%u cockpit on pico2 uart0 @%u\r\n",
+           FW_VERSION_MAJOR, FW_VERSION_MINOR, (unsigned)PICO2_UART_BAUD);
 
     const uint32_t control_period_us = 1000000u / CONTROL_HZ;
     uint64_t next_control = now_us();
 
     while (true) {
         // Pump every waiting cockpit byte; time-stamp at arrival.
-        while (uart_is_readable(COCKPIT_UART))
-            cockpit_feed((char)uart_getc(COCKPIT_UART), now_us());
+        while (uart_is_readable(PICO2_UART))
+            cockpit_feed((char)uart_getc(PICO2_UART), now_us());
 
         const uint64_t t = now_us();
         if (t >= next_control) {

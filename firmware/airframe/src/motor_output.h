@@ -4,6 +4,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define MOTOR_PWM_FULL_SCALE 1000u
 
 typedef struct {
@@ -17,5 +21,9 @@ typedef struct {
  * A zero command or zero limit stops the channel with PWM=0 and DIR=0.
  */
 motor_output_t motor_output_from_command(int16_t command, uint16_t max_pwm);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* WANDERER_MOTOR_OUTPUT_H */

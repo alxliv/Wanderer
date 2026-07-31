@@ -21,13 +21,16 @@ typedef struct {
     uint8_t len;
     bool    overflow;
     bool    complete;
+    char    pair_skip;   // partner byte to swallow so CRLF counts as one
 } LineAssembler;
 
 void line_asm_init(LineAssembler *a);
 
 // Feed one received byte. Returns true when a complete line is ready:
-// a->buf is NUL-terminated with no CR/LF. Over-length input is discarded to
-// the next newline and then reported as a complete line with a->overflow set
+// a->buf is NUL-terminated with no CR/LF. EITHER CR or LF terminates a line
+// and CRLF/LFCR terminate exactly one, so a plain terminal sending bare CR on
+// Enter works without configuration. Over-length input is discarded to the
+// next terminator and then reported as a complete line with a->overflow set
 // and an empty buffer, so the caller can answer `=err ? line_too_long`.
 bool line_asm_feed(LineAssembler *a, char c);
 

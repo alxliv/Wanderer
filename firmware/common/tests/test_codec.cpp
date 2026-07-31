@@ -193,6 +193,38 @@ static void run_assembler_tests(void)
     }
     CHECK(lines == 2, "two lines assembled", "asm");
 
+    // Bare CR terminates too: picocom and friends send only CR on Enter,
+    // and the bench session must work with no --omap on the pilot side.
+    line_asm_init(&a);
+    const char *cr_only = "ping\rget_state\r";
+    lines = 0;
+    for (const char *p = cr_only; *p; ++p) {
+        if (line_asm_feed(&a, *p)) {
+            ++lines;
+            if (lines == 1)
+                CHECK(strcmp(a.buf, "ping") == 0, "bare CR line", "asm");
+            if (lines == 2)
+                CHECK(strcmp(a.buf, "get_state") == 0, "second bare CR line", "asm");
+        }
+    }
+    CHECK(lines == 2, "two CR-only lines assembled", "asm");
+
+    // CRLF and LFCR are ONE terminator, not two: no phantom blank line
+    // between commands. Repeated CR, however, IS a real (blank) line.
+    line_asm_init(&a);
+    const char *mixed = "arm\r\nstop\n\rping\r\r";
+    lines = 0;
+    int blanks = 0;
+    for (const char *p = mixed; *p; ++p) {
+        if (line_asm_feed(&a, *p)) {
+            ++lines;
+            if (a.buf[0] == '\0')
+                ++blanks;
+        }
+    }
+    CHECK(lines == 4, "CRLF/LFCR pair once, double CR gives a blank", "asm");
+    CHECK(blanks == 1, "exactly one blank line", "asm");
+
     // Over-length input: discarded to newline, reported once as overflow,
     // and the next line is clean.
     line_asm_init(&a);

@@ -31,14 +31,14 @@
 #define ENC_LEFT_SIGN      -1
 #define ENC_RIGHT_SIGN      1
 
-/* ---- UART0: the cockpit (Pi 5 <-> airframe flight interface) ----
+/* ---- Pico2 UART (UART0) -- the flight interface to the RPI5 UART ----
  * Raw line protocol per protocol/cockpit_protocol.md -- NOT stdio. stdio
  * stays on USB CDC for bench logs. 115200 8N1 baseline (spec section 12).
  */
-#define COCKPIT_UART      uart0
-#define COCKPIT_TX_PIN    0     /* GP0 (UART0 TX) */
-#define COCKPIT_RX_PIN    1     /* GP1 (UART0 RX) */
-#define COCKPIT_BAUD      115200
+#define PICO2_UART        uart0
+#define PICO2_UART_TX_PIN 0     /* GP0 (UART0 TX) */
+#define PICO2_UART_RX_PIN 1     /* GP1 (UART0 RX) */
+#define PICO2_UART_BAUD   115200
 
 /* ---- Vehicle geometry ---- */
 #define TRACK_WIDTH_M     0.30f /* wheel-to-wheel; calibrate on the rover */

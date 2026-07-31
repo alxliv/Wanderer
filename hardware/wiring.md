@@ -12,8 +12,8 @@ detailed connection tables below synchronized with it.
 
 | GPIO | Physical pin | Direction / function | Connected device and use | Status / source |
 |------|--------------|----------------------|--------------------------|-----------------|
-| GP0 | 1 | UART0 TX, output | **Cockpit** protocol lines to pilot SBC RX (header pin 10), 115200 8N1 | Active; `COCKPIT_TX_PIN` |
-| GP1 | 2 | UART0 RX, input | **Cockpit** commands from pilot SBC TX (header pin 8) | Active; `COCKPIT_RX_PIN` |
+| GP0 | 1 | UART0 TX, output | **Cockpit** protocol lines to pilot SBC RX (header pin 10), 115200 8N1 | Active; `PICO2_UART_TX_PIN` |
+| GP1 | 2 | UART0 RX, input | **Cockpit** commands from pilot SBC TX (header pin 8) | Active; `PICO2_UART_RX_PIN` |
 | GP4 | 6 | I²C0 SDA, bidirectional | VL53L0X front ToF data; Pico is I²C master | Reserved; `TOF_SDA_PIN` |
 | GP5 | 7 | I²C0 SCL, output | VL53L0X front ToF clock | Reserved; `TOF_SCL_PIN` |
 | GP8 | 11 | Digital output | VL53L0X `XSHUT` reset/enable | Reserved/optional; `TOF_XSHUT_PIN` |
@@ -52,7 +52,7 @@ architecture moved the cockpit to **UART** (see
 §8). That firmware is parked, unbuilt, in `firmware/airframe/legacy/`. Do not
 wire GP6/GP7 to the pilot; use the UART cockpit below.
 
-## Cockpit UART — pilot SBC ↔ airframe Pico 2
+## Pico2 UART ↔ RPI5 UART — the cockpit link
 
 The flight interface: three wires, crossed. Both boards are 3.3 V logic, so
 they connect directly with no level shifter. Project convention calls the pilot
@@ -199,7 +199,7 @@ Single sensor → default address 0x29, no collision handling needed yet.
 | Pan-Tilt HAT | 0x15 | pilot I²C |
 
 No address conflicts. The Pico is **not** on this bus — it reaches the pilot
-over the cockpit UART.
+over the Pico2 UART ↔ RPI5 UART link.
 
 Camera Module 3 connects via the **Zero-specific narrow FFC cable** (22-pin 0.5 mm → 15-pin);
 a Pi 5 uses its own 22-pin cable instead.
@@ -223,5 +223,5 @@ Pico GND ───────┤
 pilot SBC GND ──┘
 ```
 
-The cockpit UART's GND wire (header pin 6 → Pico GND) is part of this same
-single ground node, not a second path around it.
+The RPI5 UART ↔ Pico2 UART GND wire (header pin 6 → Pico GND) is part of this
+same single ground node, not a second path around it.

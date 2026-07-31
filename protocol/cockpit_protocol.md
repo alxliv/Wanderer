@@ -26,7 +26,7 @@ wins — fix the code (see §11 for the known deltas).
 
 ## 1. Design principles
 
-- **Same text discipline as the base protocol.** One message per `\n`-terminated
+- **Same text discipline as the base protocol.** One message per terminated
   line, 7-bit ASCII, resynchronizable by construction, unknown-skip rules.
   One line-codec implementation serves both links.
 - **One request, one reply.** Unlike the Base protocol — where `=` is only a
@@ -51,10 +51,14 @@ wins — fix the code (see §11 for the known deltas).
 
 ## 2. Framing
 
-- A **message is one line**, terminated by `\n`. A leading `\r` is tolerated.
+- A **message is one line**. On input, **`\r`, `\n`, or `\r\n` all terminate
+  it** — a CR/LF pair counts as one terminator, not as a line plus a blank
+  one. Accepting bare CR is what lets a plain serial terminal (picocom,
+  minicom, PuTTY), which sends only CR on Enter, drive the airframe with no
+  output mapping configured. Emitters always **send `\r\n`**.
 - Encoding is 7-bit ASCII. Maximum line length **120 bytes** including the
-  terminator; over-length input is discarded to the next newline and answered
-  `=err ? line_too_long`.
+  terminator; over-length input is discarded to the next terminator and
+  answered `=err ? line_too_long`.
 - **Pilot → airframe** lines are **bare requests**: `verb [arg ...]` — or relay
   lines prefixed `^`.
 - **Airframe → Pilot** lines are **sigil-prefixed**:
@@ -369,8 +373,8 @@ while firmware checks `condition_cleared`. The simulator should model
   headroom for relay traffic remains. The rate may be raised by agreement of
   both ends without touching this spec; the electrical choice of UART (arch:
   isolation) is invariant.
-- On open, both ends discard input to the first newline (a partial line may be
-  in flight). Recommended Pilot handshake: `ping`, then `get_version`.
+- On open, both ends discard input to the first terminator (a partial line may
+  be in flight). Recommended Pilot handshake: `ping`, then `get_version`.
 
 ---
 
