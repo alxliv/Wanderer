@@ -105,7 +105,7 @@ def main():
     status = StatusLine()
     threading.Thread(target=reader_thread, args=(port, status), daemon=True).start()
 
-    print("Commands: arm | stop | move L R | ver | stat | "
+    print("Commands: arm | stop | raw L R | ver | stat | "
           "tlm on|off|<hz> | rf on|off | setbpa 0-3 | setwpa 0-3 | "
           "ping | help | quit")
     print("Telemetry is off by default; type 'tlm on' to start it.")

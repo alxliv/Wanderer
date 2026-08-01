@@ -87,7 +87,7 @@ crosses the RF link.
 |--------|-----------------------|---------------|--------------------------------|
 | `arm`  | —                     | `CMD_ARM`     | forwarded to Wanderer          |
 | `stop` | —                     | `CMD_STOP`    | forwarded to Wanderer          |
-| `move` | `vL vR` (mm/s, int16) | `CMD_MOVE`    | forwarded to Wanderer          |
+| `raw`  | `vL vR` (mm/s, int16) | `CMD_MOVE`    | forwarded to Wanderer          |
 | `ver`  | —                     | `CMD_GETVER`  | forwarded to Wanderer          |
 | `stat` | —                     | `CMD_GETSTAT` | forwarded to Wanderer          |
 | `tlm`  | `on` \| `off` \| `<hz>` | —           | Base-local (forwarding control)|
@@ -99,7 +99,29 @@ crosses the RF link.
 
 - Verbs are **case-insensitive**.
 - Arguments are **positional**, whitespace-separated.
-- This table *is* the translator: one verb ↔ one binary command type.
+- This table *is* the translator: one verb ↔ one binary command type. The text
+  verb and the `CMD_*` name need not match (`ver`/`CMD_GETVER`,
+  `raw`/`CMD_MOVE`); the mapping in this column is what is normative.
+
+### `raw` is the bench surface, not a flight surface
+
+`raw vL vR` commands the two wheels **open loop, in mm/s, with no body-frame
+mix**. It is the "dev-time diagnostic / raw bench wiggle" of architecture §3a —
+one of exactly three categories admitted to the system backdoor — and it is
+deliberately *not* how the rover is flown. Flying is `drive <linear_m_s>
+<angular_rad_s>` on the cockpit link (`cockpit_protocol.md` §3), which closes
+the differential mix inside the airframe. The same verb `raw` is reserved for
+the airframe's own debug surface in `cockpit_protocol.md` §10, so the
+open-loop-per-wheel concept has one name on both links.
+
+**Authority gate (not yet implemented).** Architecture §3a requires that this
+surface be gated to a Pi5-absent / dev mode, so the Base can never wiggle the
+wheels while the Pilot believes it is flying. Today no such gate exists, and
+none is reachable: `wanderer_rflink` (which serves this protocol) and
+`wanderer_airframe` (which serves the cockpit) are separate binaries for the
+same rover Pico2, so the two motion paths are never live at once. The gate
+becomes load-bearing — and mandatory — the moment `wanderer_dongle` lets one
+airframe binary carry both an RF backdoor and a live cockpit.
 
 ---
 
@@ -207,7 +229,7 @@ match the base's own power, set `setbpa` to taste.)
   same defensive instinct applied to the binary structs.
 - Argument errors are specific where practical:
   - `=err unknown command: <verb>`
-  - `=err move: expected 2 integers`
+  - `=err raw: expected 2 integers`
   - `=err tlm: expected on|off|<hz>`
 
 ---
@@ -220,9 +242,9 @@ match the base's own power, set `setbpa` to taste.)
 #seq=412 state=ACTIVE armed=1 moving=1
 >ver fw=0.1
 >stat state=ACTIVE fault=0 armed=1 moving=1 vL=120 vR=-120
-=ok move vL=120 vR=-120
-=err unknown command: mve
-=err move: expected 2 integers
+=ok raw vL=120 vR=-120
+=err unknown command: raww
+=err raw: expected 2 integers
 !state from=ACTIVE to=FALLBACK
 !link down
 !link up
@@ -236,8 +258,8 @@ Bare lines are what the laptop sends; sigil lines are the Base replying.
 arm
 =ok arm
 !state from=SAFE to=ACTIVE
-move 150 150
-=ok move vL=150 vR=150
+raw 150 150
+=ok raw vL=150 vR=150
 tlm 5
 =ok tlm rate=5 on=1
 #seq=88 state=ACTIVE armed=1 moving=1
@@ -257,7 +279,7 @@ stop
 ### `=ok` means *accepted*, not *executed*
 
 The Base confirms it **parsed and forwarded** the command. Whether the Wanderer
-actually acts depends on the Wanderer's own state — for example, a `move` is
+actually acts depends on the Wanderer's own state — for example, a `raw` is
 ignored unless the Wanderer is in `ACTIVE` (or resuming from `FALLBACK`). That
 outcome is visible in `#` telemetry and `>stat`, never in the `=` ack. The Base
 cannot synchronously know the Wanderer's state, and must not block on RF
@@ -308,7 +330,7 @@ pre-reserved:
 
 ```
 Laptop -> Base (bare verbs):
-  arm | stop | move <vL> <vR> | ver | stat | tlm on|off|<hz> | rf on|off
+  arm | stop | raw <vL> <vR> | ver | stat | tlm on|off|<hz> | rf on|off
   setbpa <0-3> | setwpa <0-3> | ping | help
 
 Base -> Laptop (sigil + payload):

@@ -680,7 +680,7 @@ void poll_wanderer(BaseState *state) {
 
 void print_base_help() {
     // Help text is `*` log: human-facing, ignored by a machine parser.
-    PRINTF("*commands: arm | stop | move <vL> <vR> | ver | stat | "
+    PRINTF("*commands: arm | stop | raw <vL> <vR> | ver | stat | "
            "tlm on|off|<hz> | rf on|off | setbpa <0-3> | setwpa <0-3> | "
            "ping | help\r\n");
     PRINTF("*rf fields: arc=auto-retransmit count of last packet (0-15, "
@@ -691,10 +691,10 @@ void print_base_help() {
 void print_wanderer_help() {
     // The Wanderer's local debug console: a subset that acts directly on this
     // board, with no base or RF link involved. Read commands report local state;
-    // arm/stop/move drive the FSM as if a commander issued them; setpa changes
+    // arm/stop/raw drive the FSM as if a commander issued them; setpa changes
     // this radio's own PA level.
     PRINTF("*wanderer debug console (local, USB only)\r\n");
-    PRINTF("*commands: arm | stop | move <vL> <vR> | ver | stat | rf | "
+    PRINTF("*commands: arm | stop | raw <vL> <vR> | ver | stat | rf | "
            "setpa <0-3> | help\r\n");
 }
 
@@ -788,15 +788,18 @@ void process_base_command_line(char *line, BaseState *state) {
     } else if (token_is(verb, "stat")) {
         PRINTF("=ok stat\r\n");
         state->tx_getstat_cmd();
-    } else if (token_is(verb, "move")) {
+    } else if (token_is(verb, "raw")) {
+        // The open-loop per-wheel surface: velocities go to the wheels as given,
+        // with no body-frame mix. The cockpit's `drive` (linear + angular) is
+        // the flight surface; this is the bench one.
         int16_t left = 0;
         int16_t right = 0;
         if (count != 3 || !parse_velocity(token[1], &left) ||
             !parse_velocity(token[2], &right)) {
-            PRINTF("=err move: expected 2 integers\r\n");
+            PRINTF("=err raw: expected 2 integers\r\n");
             return;
         }
-        PRINTF("=ok move vL=%d vR=%d\r\n", left, right);
+        PRINTF("=ok raw vL=%d vR=%d\r\n", left, right);
         state->tx_move_cmd(left, right);
     } else if (token_is(verb, "tlm")) {
         if (count != 2) {
@@ -863,7 +866,7 @@ void process_base_command_line(char *line, BaseState *state) {
 
 // The Wanderer's local debug console, the counterpart to
 // process_base_command_line. Everything here acts directly on this board: read
-// commands report local state, arm/stop/move drive the FSM as if a commander
+// commands report local state, arm/stop/raw drive the FSM as if a commander
 // issued them, and setpa changes this radio's PA. No frame goes over the air.
 void process_wanderer_command_line(char *line) {
     char *token[4];
@@ -883,19 +886,19 @@ void process_wanderer_command_line(char *line) {
     } else if (token_is(verb, "stop")) {
         tac_disarm();   // dev console mirrors RF vocabulary: stop = disarm
         PRINTF("=ok stop\r\n");
-    } else if (token_is(verb, "move")) {
+    } else if (token_is(verb, "raw")) {
         int16_t left = 0;
         int16_t right = 0;
         if (count != 3 || !parse_velocity(token[1], &left) ||
             !parse_velocity(token[2], &right)) {
-            PRINTF("=err move: expected 2 integers\r\n");
+            PRINTF("=err raw: expected 2 integers\r\n");
             return;
         }
         tac_note_commander_alive(now_us);
         if (tac_drive(left, right) == TAC_OK) {
-            PRINTF("=ok move vL=%d vR=%d\r\n", left, right);
+            PRINTF("=ok raw vL=%d vR=%d\r\n", left, right);
         } else {
-            PRINTF("=err move: not active (arm first)\r\n");
+            PRINTF("=err raw: not active (arm first)\r\n");
         }
     } else if (token_is(verb, "ver")) {
         PRINTF(">ver fw=%u.%u\r\n", FIRMWARE_MAJOR, FIRMWARE_MINOR);
@@ -1060,7 +1063,7 @@ int main() {
             // attached, independent of the radio, so the board can be inspected
             // and driven even with the nRF24 absent. Only radio command handling
             // is gated on radio_ready; the FSM ticks regardless so locally
-            // issued arm/move actually advance state and fall back on silence.
+            // issued arm/raw actually advance state and fall back on silence.
             if (stdio_usb_connected()) {
                 poll_usb_lines(wanderer_line_handler, nullptr);
             }

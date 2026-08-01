@@ -52,11 +52,14 @@ ok|get_state|state=ACTIVE|=ok get_state state=ACTIVE
 ok|get_state|state=FAULT fault=ESTOP|=ok get_state state=FAULT fault=ESTOP
 ok|get_odometry|lt=15320 rt=15294 vl=0.298 vr=0.301|=ok get_odometry lt=15320 rt=15294 vl=0.298 vr=0.301
 ok|get_version|fw=0.1|=ok get_version fw=0.1
+ok|drive||=ok drive
+ok|drive|lin=0.462 omega=0.923|=ok drive lin=0.462 omega=0.923
 err|drive|not_armed|state is SAFE|=err drive not_armed state is SAFE
 err|stop|not_armed|state is FALLBACK|=err stop not_armed state is FALLBACK
 err|arm|fault_latched||=err arm fault_latched
 err|?|unknown_command|mve|=err ? unknown_command mve
 err|drive|bad_args|expected 2 numbers|=err drive bad_args expected 2 numbers
+err|drive|bad_args|out of range|=err drive bad_args out of range
 err|?|line_too_long||=err ? line_too_long
 state|SAFE|ACTIVE|!state from=SAFE to=ACTIVE
 state|ACTIVE|FALLBACK|!state from=ACTIVE to=FALLBACK
@@ -80,6 +83,8 @@ drive|-0.333|1.5|drive -0.333 1.500
 =ok ping|ok|ping|
 =ok get_state state=ACTIVE|ok|get_state|state=ACTIVE
 =ok get_odometry lt=15320 rt=15294 vl=0.298 vr=0.301|ok|get_odometry|lt=15320 rt=15294 vl=0.298 vr=0.301
+=ok drive|ok|drive|
+=ok drive lin=0.462 omega=0.923|ok|drive|lin=0.462 omega=0.923
 =err drive not_armed state is SAFE|err|drive|not_armed|state is SAFE
 =err arm fault_latched|err|arm|fault_latched|
 !state from=SAFE to=ACTIVE|state|SAFE|ACTIVE

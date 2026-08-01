@@ -2,10 +2,12 @@
 
 Mirrors the tactical FSM (firmware/common/tactical.h/.cpp): Safe / Active /
 Fallback / Fault, liveness fed by any valid command, fallback on commander
-silence, resume only on a fresh drive. It is both a test double for pilot
-code and an executable statement of what the real UART link + firmware must
-do. (Simplification: the fallback ramp is instantaneous — velocity semantics,
-not motion dynamics, are what this sim pins down.)
+silence, resume only on a fresh drive. It also mirrors the airframe's
+wheel-speed limit (cockpit_handler.cpp `drive_scale`), so a saturating drive
+behaves here as it does on the rover. It is both a test double for pilot code
+and an executable statement of what the real UART link + firmware must do.
+(Simplification: the fallback ramp is instantaneous — velocity semantics, not
+motion dynamics, are what this sim pins down.)
 """
 
 import threading
@@ -21,10 +23,19 @@ FAULT_ESTOP = 1
 TICKS_PER_M = 10000.0
 TICK_PERIOD_S = 0.02  # 50 Hz FSM tick, plenty for liveness resolution
 
+# The rover's real geometry, from firmware/airframe/src/config.h:
+# TRACK_WIDTH_M / 2, and DEFAULT_MAX_SPEED_MM_S / 1000.
+HALF_TRACK_M = 0.15
+MAX_WHEEL_M_S = 0.6
+
 
 class SimulatedCockpitLink(CockpitLink):
-    def __init__(self, *, liveness_timeout_s: float = 0.75):
+    def __init__(self, *, liveness_timeout_s: float = 0.75,
+                 half_track_m: float = HALF_TRACK_M,
+                 max_wheel_m_s: float = MAX_WHEEL_M_S):
         self._liveness_timeout = liveness_timeout_s
+        self._half_track = half_track_m
+        self._max_wheel = max_wheel_m_s
         self._sink: Optional[Callable[[Event], None]] = None
         self._lock = threading.Lock()
         self._running = False
@@ -104,9 +115,17 @@ class SimulatedCockpitLink(CockpitLink):
             if self._state != TacticalState.ACTIVE:
                 raise CockpitNack("not_armed", f"state is {self._state.name}")
             v, w = p["linear_m_s"], p["angular_rad_s"]
-            half_track = 0.15  # arbitrary sim geometry, meters
-            self._v_left = v - w * half_track
-            self._v_right = v + w * half_track
+            left = v - w * self._half_track
+            right = v + w * self._half_track
+            scale = self._drive_scale(left, right)
+            self._v_left = left * scale
+            self._v_right = right * scale
+            if scale < 1.0:
+                # Mirrors the firmware: the applied pair is reported ONLY when
+                # it differs from the request, so its presence is the
+                # saturation signal (spec section 3).
+                return Reply({"linear_m_s": v * scale,
+                              "angular_rad_s": w * scale})
             return Reply()
         if op == _link.OP_STOP:
             if self._state != TacticalState.ACTIVE:
@@ -125,6 +144,22 @@ class SimulatedCockpitLink(CockpitLink):
         if op == _link.OP_GET_VERSION:
             return Reply({"major": 0, "minor": 1})
         raise CockpitNack("bad_op", op)
+
+    def _drive_scale(self, left: float, right: float) -> float:
+        """Factor bringing an over-limit wheel PAIR back inside the limit.
+
+        Both wheels scale by the same factor, so the ratio between them — and
+        with it the commanded turn radius — survives, and only the speed
+        drops. Clipping each wheel separately would change the difference
+        between them, which *is* the turn. Mirrors `drive_scale()` in
+        firmware/common/cockpit_handler.cpp.
+        """
+        if self._max_wheel <= 0.0:
+            return 1.0
+        peak = max(abs(left), abs(right))
+        if peak <= self._max_wheel:
+            return 1.0
+        return self._max_wheel / peak
 
     def _moving(self) -> bool:
         return self._state == TacticalState.ACTIVE

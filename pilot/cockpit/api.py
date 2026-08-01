@@ -37,6 +37,24 @@ class FirmwareVersion:
     minor: int
 
 
+@dataclass(frozen=True)
+class DriveApplied:
+    """What the airframe actually applied for a ``drive()`` request.
+
+    ``limited`` is True when the request needed more wheel speed than the
+    drivetrain has. The airframe does not refuse such a request: it scales
+    *both* wheels by one factor, which leaves ``linear_m_s / angular_rad_s``
+    — the commanded turn radius — unchanged and gives up speed instead. The
+    rover therefore follows the arc it was asked for, just more slowly.
+
+    When ``limited`` is False these fields echo the request.
+    """
+
+    linear_m_s: float
+    angular_rad_s: float
+    limited: bool
+
+
 class Cockpit:
     """Blocking command interface and event callbacks over one link.
 
@@ -134,16 +152,30 @@ class Cockpit:
 
     # Motion control
 
-    def drive(self, linear_m_s: float, angular_rad_s: float) -> None:
+    def drive(self, linear_m_s: float, angular_rad_s: float) -> DriveApplied:
         """Set the forward and angular velocity command.
 
         The command remains active until replaced. After FALLBACK, only a new
         ``drive()`` command resumes motion. The airframe rejects this command
         unless it is armed.
+
+        Returns what was actually applied. A request past the drivetrain's
+        wheel-speed limit is not an error — it is scaled down with the
+        commanded arc preserved, and comes back with ``limited=True``.
         """
-        self._execute(_link.OP_DRIVE,
-                      linear_m_s=float(linear_m_s),
-                      angular_rad_s=float(angular_rad_s))
+        linear_m_s, angular_rad_s = float(linear_m_s), float(angular_rad_s)
+        reply = self._execute(_link.OP_DRIVE,
+                              linear_m_s=linear_m_s,
+                              angular_rad_s=angular_rad_s)
+        # The airframe sends the applied pair only when it differs from the
+        # request (spec section 3), so absence means "applied as asked".
+        v = reply.values
+        if "linear_m_s" in v:
+            return DriveApplied(linear_m_s=v["linear_m_s"],
+                                angular_rad_s=v["angular_rad_s"],
+                                limited=True)
+        return DriveApplied(linear_m_s=linear_m_s,
+                            angular_rad_s=angular_rad_s, limited=False)
 
     def stop(self) -> None:
         """Set velocity to zero while remaining ACTIVE."""

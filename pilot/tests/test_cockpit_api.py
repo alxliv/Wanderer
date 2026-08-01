@@ -233,5 +233,76 @@ class SpecMatrixTest(unittest.TestCase):
         fault_persists and keep the latch (spec section 6, FAULT column)."""
 
 
+class DriveLimitTest(unittest.TestCase):
+    """The drivetrain's wheel-speed limit (cockpit spec section 3).
+
+    A drive past what the wheels can deliver is scaled, never refused, and
+    both wheels scale by ONE factor so the commanded turn radius survives.
+    Sim geometry is the rover's: half-track 0.15 m, wheel limit 0.6 m/s.
+    """
+
+    def setUp(self):
+        self.cockpit = Cockpit(
+            SimulatedCockpitLink(liveness_timeout_s=LIVENESS_S))
+        self.cockpit.open()
+        self.cockpit.arm()
+
+    def tearDown(self):
+        self.cockpit.close()
+
+    def test_within_limit_is_untouched(self):
+        applied = self.cockpit.drive(0.3, 0.0)
+        self.assertFalse(applied.limited)
+        self.assertAlmostEqual(applied.linear_m_s, 0.3)
+        self.assertAlmostEqual(applied.angular_rad_s, 0.0)
+
+    def test_exactly_at_the_limit_is_untouched(self):
+        applied = self.cockpit.drive(0.6, 0.0)
+        self.assertFalse(applied.limited)
+        self.assertAlmostEqual(applied.linear_m_s, 0.6)
+
+    def test_over_limit_scales_the_pair(self):
+        # left 0.35, right 0.65: only the RIGHT wheel is over 0.6, but both
+        # scale by 0.6/0.65 -- clipping right alone would bend the arc.
+        applied = self.cockpit.drive(0.5, 1.0)
+        self.assertTrue(applied.limited)
+        self.assertAlmostEqual(applied.linear_m_s, 0.5 * 0.6 / 0.65)
+        self.assertAlmostEqual(applied.angular_rad_s, 1.0 * 0.6 / 0.65)
+
+    def test_turn_radius_survives_limiting(self):
+        """The whole point: give up speed, never the commanded arc."""
+        applied = self.cockpit.drive(0.5, 1.0)
+        self.assertAlmostEqual(applied.linear_m_s / applied.angular_rad_s,
+                               0.5 / 1.0)   # 0.5 m radius, as requested
+
+    def test_scaled_command_reaches_the_wheels(self):
+        self.cockpit.drive(0.5, 1.0)
+        odom = self.cockpit.odometry()
+        self.assertAlmostEqual(odom.right_m_s, 0.6)   # sits on the limit
+        self.assertAlmostEqual(odom.left_m_s, 0.35 * 0.6 / 0.65)
+
+    def test_pure_spin_saturates_symmetrically(self):
+        # The fastest this geometry can yaw is 2 * 0.6 / 0.30 = 4 rad/s.
+        applied = self.cockpit.drive(0.0, 10.0)
+        self.assertTrue(applied.limited)
+        self.assertAlmostEqual(applied.linear_m_s, 0.0)
+        self.assertAlmostEqual(applied.angular_rad_s, 4.0)
+        odom = self.cockpit.odometry()
+        self.assertAlmostEqual(odom.left_m_s, -0.6)
+        self.assertAlmostEqual(odom.right_m_s, 0.6)
+
+    def test_limiting_is_opt_in(self):
+        cockpit = Cockpit(SimulatedCockpitLink(
+            liveness_timeout_s=LIVENESS_S, max_wheel_m_s=0.0))
+        cockpit.open()
+        try:
+            cockpit.arm()
+            applied = cockpit.drive(5.0, 0.0)
+            self.assertFalse(applied.limited)
+            self.assertAlmostEqual(applied.linear_m_s, 5.0)
+        finally:
+            cockpit.close()
+
+
 if __name__ == "__main__":
     unittest.main()

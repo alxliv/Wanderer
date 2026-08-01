@@ -14,6 +14,7 @@ static cockpit_sink    s_relay;
 static cockpit_odom_fn s_odom;
 static uint8_t         s_fwMajor, s_fwMinor;
 static float           s_halfTrackM;
+static float           s_maxWheelMs;
 static LineAssembler   s_asm;
 
 static void emit(const char *line)
@@ -38,12 +39,13 @@ static void on_change_state(TacticalState from, TacticalState to)
 }
 
 void cockpit_init(cockpit_sink sink, uint8_t fw_major, uint8_t fw_minor,
-                  float half_track_m)
+                  float half_track_m, float max_wheel_m_s)
 {
     s_sink = sink;
     s_fwMajor = fw_major;
     s_fwMinor = fw_minor;
     s_halfTrackM = half_track_m;
+    s_maxWheelMs = max_wheel_m_s;
     s_relay = NULL;
     s_odom = NULL;
     line_asm_init(&s_asm);
@@ -79,13 +81,43 @@ static void reply_err(const char *verb, const char *reason, const char *detail)
         emit(line);
 }
 
-// Body velocities (m/s, rad/s) -> wheel targets (mm/s), differential drive.
+// One wheel's velocity (m/s) -> the tactical layer's units (mm/s).
+//
+// The bounds here are int16_t's, NOT the vehicle's: casting a float that does
+// not fit the destination type is undefined behavior, so the value is made
+// castable before the cast. NaN is rejected first because it fails every
+// comparison and would slip past both clamps -- codec_parse_f32 refuses
+// non-finite input so one cannot arrive from the wire, but this function must
+// be total. The VEHICLE's limit is a separate concern, applied by
+// drive_scale() below while there is still a reply channel to report it.
 static int16_t wheel_mm_s(float m_s)
 {
     float v = roundf(m_s * 1000.0f);
+    if (isnan(v))
+        return 0;
     if (v >  32767.0f) v =  32767.0f;
     if (v < -32768.0f) v = -32768.0f;
     return (int16_t)v;
+}
+
+// The vehicle's own limit, applied to the wheel PAIR. Returns the factor to
+// multiply both wheels by (1.0 when the request already fits).
+//
+// Wheel targets beyond what the drivetrain can deliver are scaled down
+// TOGETHER, never clipped apart. Clipping one wheel changes the DIFFERENCE
+// between the two, and that difference is the turn: the rover would quietly
+// drive a wider arc than commanded and bias the Pilot's dead reckoning.
+// Scaling both by one factor leaves left:right -- and so the commanded turn
+// radius -- intact, and simply traverses the same arc more slowly.
+static float drive_scale(float left_m_s, float right_m_s)
+{
+    if (s_maxWheelMs <= 0.0f)
+        return 1.0f;                  // limiting not configured by the caller
+    float l = fabsf(left_m_s), r = fabsf(right_m_s);
+    float peak = (l > r) ? l : r;
+    if (peak <= s_maxWheelMs)
+        return 1.0f;
+    return s_maxWheelMs / peak;
 }
 
 // ---- request dispatch ------------------------------------------------------
@@ -131,15 +163,35 @@ static void handle_request(char *line, uint64_t now_us)
     } else if (codec_token_eq(verb, "stop")) {
         reply_rc("stop", tac_stop());
     } else if (codec_token_eq(verb, "drive")) {
-        float lin, ang;
-        if (n != 3 || !codec_parse_f32(tok[1], &lin)
-                   || !codec_parse_f32(tok[2], &ang)) {
+        float lin_m_s, omega_rad_s;
+        if (n != 3 || !codec_parse_f32(tok[1], &lin_m_s)
+                   || !codec_parse_f32(tok[2], &omega_rad_s)) {
             reply_err("drive", "bad_args", "expected 2 numbers");
             return;
         }
-        int16_t left  = wheel_mm_s(lin - ang * s_halfTrackM);
-        int16_t right = wheel_mm_s(lin + ang * s_halfTrackM);
-        reply_rc("drive", tac_drive(left, right));
+        float left  = lin_m_s - omega_rad_s * s_halfTrackM;
+        float right = lin_m_s + omega_rad_s * s_halfTrackM;
+        // Both inputs are finite (codec_parse_f32 guarantees it), but their
+        // sum can still overflow at the extremes of float range. Refuse rather
+        // than scale an infinity -- max/inf would be 0, and inf*0 is NaN.
+        if (!isfinite(left) || !isfinite(right)) {
+            reply_err("drive", "bad_args", "out of range");
+            return;
+        }
+        float scale = drive_scale(left, right);
+        int rc = tac_drive(wheel_mm_s(left * scale), wheel_mm_s(right * scale));
+        if (rc == TAC_OK && scale < 1.0f) {
+            // Spec section 3: report what was actually applied, and ONLY when
+            // it differs from the request -- the fields' presence IS the
+            // saturation signal, so the common case stays a bare `=ok drive`
+            // and the streaming reply does not grow.
+            char fields[48];
+            snprintf(fields, sizeof fields, "lin=%.3f omega=%.3f",
+                     (double)(lin_m_s * scale), (double)(omega_rad_s * scale));
+            reply_ok_fields("drive", fields);
+        } else {
+            reply_rc("drive", rc);
+        }
     } else if (codec_token_eq(verb, "get_state")) {
         char fields[64];
         if (tac_state() == TacticalState::Fault)

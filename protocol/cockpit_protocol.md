@@ -132,7 +132,7 @@ One wire verb per `OP_*` constant in `pilot/cockpit/link.py`, same spelling:
 | `disarm`      | —                             | —                                  | `fault_latched`         |
 | `estop`       | —                             | —                                  | — (never refused)       |
 | `clear_fault` | —                             | —                                  | `no_fault`, `fault_persists` |
-| `drive`       | `<linear_m_s> <angular_rad_s>`| —                                  | `not_armed`, `bad_args` |
+| `drive`       | `<linear_m_s> <angular_rad_s>`| `lin=<m/s> omega=<rad/s>` (only when limited — see below) | `not_armed`, `bad_args` |
 | `stop`        | —                             | —                                  | `not_armed`             |
 | `get_state`   | —                             | `state=<NAME>` `fault=<NAME>` (only in FAULT) | —            |
 | `get_odometry`| —                             | `lt=<int> rt=<int> vl=<m/s> vr=<m/s>` | —                    |
@@ -141,6 +141,43 @@ One wire verb per `OP_*` constant in `pilot/cockpit/link.py`, same spelling:
 Field conventions follow the Base protocol: FSM states and fault codes by
 **name** (`SAFE`, `ACTIVE`, `FALLBACK`, `FAULT`; `ESTOP`, ...), booleans `0`/`1`,
 new fields may be appended at any time without a protocol revision.
+
+### `drive` beyond what the vehicle can deliver
+
+A `drive` request is a *body* velocity, but the drivetrain's limit is *per
+wheel*, and a modest linear speed with a hard turn can put one wheel over while
+the other is well inside. The airframe therefore scales **both wheels by a
+single factor** so the faster one lands exactly on the limit.
+
+This is a deliberate choice of what to sacrifice. Clipping each wheel
+independently would change the *difference* between them — and the difference
+is the turn (§3 `drive` semantics), so the rover would drive a wider arc than
+commanded while reporting success, biasing the Pilot's dead reckoning. Scaling
+together leaves the ratio, and so the commanded **turn radius**, intact: the
+rover follows the arc it was asked for, just more slowly.
+
+Because `lin` and `omega` are both scaled by that one factor, the reply reports
+the pair actually applied:
+
+```
+drive 0.5 1.0
+=ok drive lin=0.462 omega=0.923      (wanted left 0.35 / right 0.65 m/s;
+                                      right alone was over a 0.6 m/s limit)
+```
+
+- The fields appear **only when the request was scaled**. Their presence is
+  the saturation signal; an unlimited request keeps the bare `=ok drive`, so
+  the streaming reply does not grow in the common case.
+- Ratio `lin/omega` is unchanged from the request — check `omega` if you need
+  to know how much authority is left.
+- Limiting is a firmware configuration (`cockpit_init`), not a wire parameter.
+  The Pilot discovers the limit by observing these fields, not by asking.
+- `drive` is never *refused* for being too fast. A velocity surface that
+  rejects commands mid-stream is far harder for a controller to handle than
+  one that saturates predictably and says so. `bad_args` remains reserved for
+  input that cannot be interpreted at all — including the pathological case
+  where two finite arguments mix to a non-finite wheel target
+  (`=err drive bad_args out of range`).
 
 ---
 
@@ -345,8 +382,13 @@ not designed yet (arch §5, §7):
   Arbitration between a procedure and the Tier 1 stream will define `busy`.
 - **Tier 3 reflexes:** `cfg <reflex> [key=value ...]` to enable/threshold;
   fire event `!reflex name=<n> [action=<a>]`.
-- **Debug/raw surface:** `raw ...` — the open-loop bench surface, gated behind
-  a debug mode, refused otherwise. Shape TBD.
+- **Debug/raw surface:** `raw <vL> <vR>` — the open-loop per-wheel bench
+  surface, gated behind a debug mode, refused otherwise. Same name and same
+  meaning as `raw` on the Base link (`base_text_protocol.md` §4), so the
+  open-loop-per-wheel concept is spelled one way system-wide; only the units
+  differ (SI here, int16 mm/s over RF). Its relationship to the Tier 1 `drive`
+  stream — which wins, and how the loser is told — is part of the same
+  arbitration question as Tier 2 `busy`. Shape TBD.
 - **Client tag echo:** trailing `@<tag>` echoed on the reply, exactly as
   reserved in the Base protocol §10 — only if a client ever wants pipelined
   requests. The baseline (one in flight) does not need it.
@@ -360,9 +402,24 @@ The tactical firmware now separates `stop` from `disarm`, refuses `arm` and
 UART cockpit transport still needs to translate that callback into the §8 wire
 events.
 
+The wheel-speed limit is implemented on both sides: `cockpit_handler.cpp`
+(`drive_scale`) and `sim.py` (`_drive_scale`) share the rover's geometry, and
+`Cockpit.drive()` returns a `DriveApplied` carrying the applied pair and a
+`limited` flag. Both reply forms are pinned by the golden vectors.
+
 One known simulator delta remains: **`sim.py` `clear_fault`** always succeeds,
 while firmware checks `condition_cleared`. The simulator should model
 `fault_persists` once a simulated persistent fault exists (Tier 3 work).
+
+**Open requirement — the backdoor authority gate.** Architecture §3a requires
+the raw/open-loop motion surface to be gated to a Pi5-absent / dev mode, so the
+Base cannot command wheels while the Pilot believes it is flying. Nothing
+implements that gate today. It is currently *unreachable* rather than broken:
+`wanderer_airframe` has no radio and `wanderer_rflink` has no cockpit, so the
+two motion paths never coexist in one binary. When `wanderer_dongle` lands and
+the airframe carries both a cockpit and an RF backdoor, the gate must land with
+it — `tactical.h` has no notion of a commander *identity* or a dev mode today,
+so this is new FSM surface, not a flag on an existing call.
 
 ---
 

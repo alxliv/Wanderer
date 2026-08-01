@@ -62,7 +62,9 @@ static void send(const char *line)
 static void fresh(void)
 {
     tac_init();
-    cockpit_init(sink, 0, 3, 0.15f);   // fw 0.3, half-track 0.15 m
+    // fw 0.3, half-track 0.15 m (0.30 m track), wheel limit 0.6 m/s -- the
+    // rover's real geometry and DEFAULT_MAX_SPEED_MM_S.
+    cockpit_init(sink, 0, 3, 0.15f, 0.6f);
     out_clear();
     relay_count = 0;
     g_now = 1000000;
@@ -183,6 +185,65 @@ static void test_lease_rules(void)   // spec section 5
     EXPECT(1, "=ok drive");
 }
 
+// The vehicle limit: a request beyond what the wheels can deliver is scaled as
+// a PAIR, so the commanded arc survives and only the speed drops.
+static void test_drive_saturation(void)
+{
+    fresh();
+    send("arm");
+    out_clear();
+
+    // Exactly at the limit is not scaled, and the reply stays bare.
+    send("drive 0.600 0.000");
+    EXPECT(0, "=ok drive");
+    CHECK(tac_target_left() == 600 && tac_target_right() == 600,
+          "a request at the limit passes through untouched");
+    out_clear();
+
+    // left = 0.35, right = 0.65: only the right wheel is over, but BOTH scale
+    // by 0.6/0.65. Clipping the right wheel alone would give 350/600 and turn
+    // the commanded 0.50 m turn radius into 0.57 m -- silently.
+    send("drive 0.500 1.000");
+    EXPECT(0, "=ok drive lin=0.462 omega=0.923");
+    CHECK(tac_target_left() == 323 && tac_target_right() == 600,
+          "an over-limit pair scales together");
+    CHECK(tac_target_left() * 1000 / tac_target_right() == 538,
+          "wheel ratio 0.35/0.65 survives, so the arc does too");
+    out_clear();
+
+    // Pure spin: the fastest this geometry can yaw is 2*0.6/0.30 = 4 rad/s.
+    send("drive 0.000 10.000");
+    EXPECT(0, "=ok drive lin=0.000 omega=4.000");
+    CHECK(tac_target_left() == -600 && tac_target_right() == 600,
+          "spin saturates symmetrically");
+    out_clear();
+
+    // Absurd-but-finite input now lands on the VEHICLE limit; the int16 guard
+    // in wheel_mm_s() is no longer what bounds it.
+    send("drive 1e30 0");
+    EXPECT(0, "=ok drive lin=0.600 omega=0.000");
+    CHECK(tac_target_left() == 600 && tac_target_right() == 600,
+          "huge finite request lands on the vehicle limit");
+    out_clear();
+
+    // Finite inputs whose MIX overflows float are refused, not scaled:
+    // 3e38 + 3e38*0.15 exceeds FLT_MAX.
+    send("drive 3.0e38 3.0e38");
+    EXPECT(0, "=err drive bad_args out of range");
+    CHECK(tac_target_left() == 600, "a refused drive leaves targets alone");
+    out_clear();
+
+    // Limiting is opt-in: <= 0 leaves only the int16 range guard.
+    tac_init();
+    cockpit_init(sink, 0, 3, 0.15f, 0.0f);
+    send("arm");
+    out_clear();
+    send("drive 5.000 0.000");
+    EXPECT(0, "=ok drive");
+    CHECK(tac_target_left() == 5000 && tac_target_right() == 5000,
+          "max_wheel_m_s <= 0 disables limiting");
+}
+
 static void odom_fixture(int32_t *lt, int32_t *rt, float *vl, float *vr)
 {
     *lt = 15320; *rt = 15294; *vl = 0.298f; *vr = 0.301f;
@@ -212,6 +273,7 @@ int main(void)
     test_refusals_and_unknown();
     test_estop_latch_and_clear();
     test_lease_rules();
+    test_drive_saturation();
     test_odometry_and_overflow();
     if (failures == 0)
         printf("OK: cockpit handler wire-level tests pass\n");

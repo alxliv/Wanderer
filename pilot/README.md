@@ -26,6 +26,18 @@ with Cockpit(SimulatedCockpitLink()) as cp:
     cp.disarm()
 ```
 
+`drive()` returns a `DriveApplied`. A command needing more wheel speed than
+the drivetrain has is **not** refused — the airframe scales both wheels by one
+factor, which preserves the commanded turn radius and gives up speed instead,
+then reports what it did:
+
+```python
+applied = cp.drive(0.5, 1.0)          # wants right wheel at 0.65 m/s
+if applied.limited:                   # ... but the wheel limit is 0.6
+    print(applied.linear_m_s,         # 0.462 — same arc,
+          applied.angular_rad_s)      # 0.923 — traversed slower
+```
+
 Design rules (from the command architecture + the cockpit discussion):
 
 - **Blocking request/response.** Every command is answered at once or raises
