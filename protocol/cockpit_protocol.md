@@ -137,6 +137,17 @@ One wire verb per `OP_*` constant in `pilot/cockpit/link.py`, same spelling:
 | `get_state`   | —                             | `state=<NAME>` `fault=<NAME>` (only in FAULT) | —            |
 | `get_odometry`| —                             | `lt=<int> rt=<int> vl=<m/s> vr=<m/s>` | —                    |
 | `get_version` | —                             | `fw=<major>.<minor>`               | —                       |
+| `get_geometry`| —                             | `tpm=<ticks/m> track=<m>`          | —                       |
+
+`get_geometry` reports the drivetrain geometry the airframe itself uses:
+`tpm` — encoder ticks per meter of wheel travel (one number; how the firmware
+factors it into ticks-per-rev and circumference is private), and `track` —
+wheel-to-wheel distance in meters. The firmware is the single owner of these
+calibration numbers; the Pilot asks rather than carrying a copy. Deliberately
+geometry only: performance limits (wheel speed etc.) are *not* here — a future
+`get_limits` may report them, and until then the Pilot discovers the speed
+limit by observing scaled `drive` replies, per this section. Values are plain
+decimals; like every query it works in all states.
 
 Field conventions follow the Base protocol: FSM states and fault codes by
 **name** (`SAFE`, `ACTIVE`, `FALLBACK`, `FAULT`; `ESTOP`, ...), booleans `0`/`1`,
@@ -295,6 +306,8 @@ ping
 =ok ping
 get_version
 =ok get_version fw=0.1
+get_geometry
+=ok get_geometry tpm=10000 track=0.300
 get_state
 =ok get_state state=SAFE
 arm
@@ -411,6 +424,13 @@ One known simulator delta remains: **`sim.py` `clear_fault`** always succeeds,
 while firmware checks `condition_cleared`. The simulator should model
 `fault_persists` once a simulated persistent fault exists (Tier 3 work).
 
+**`get_geometry` is spec + pilot + sim only for now.** The firmware handler
+does not implement it yet and answers `=err ? unknown_command get_geometry` —
+the correct old-firmware behavior. Implementing it requires `cockpit_init` to
+receive `ticks_per_meter` (today only `half_track_m` crosses that boundary;
+the tick calibration lives in `airframe/src/config.h`), so it lands with the
+next firmware pass alongside the UART event wiring above.
+
 **Open requirement — the backdoor authority gate.** Architecture §3a requires
 the raw/open-loop motion surface to be gated to a Pi5-absent / dev mode, so the
 Base cannot command wheels while the Pilot believes it is flying. Nothing
@@ -441,7 +461,7 @@ so this is new FSM surface, not a flag on an existing call.
 Pilot -> airframe (bare verbs):
   ping | arm | disarm | estop | clear_fault
   drive <linear_m_s> <angular_rad_s> | stop
-  get_state | get_odometry | get_version
+  get_state | get_odometry | get_version | get_geometry
   ^<payload>                      (relay to Base, opaque)
 
 airframe -> Pilot (sigil + payload):

@@ -38,6 +38,19 @@ class FirmwareVersion:
 
 
 @dataclass(frozen=True)
+class Geometry:
+    """Drivetrain geometry owned and reported by the firmware.
+
+    The firmware is the single source of these calibration numbers; pilot
+    code queries them at startup instead of keeping a copy. Geometry only —
+    performance limits are deliberately elsewhere (a future ``get_limits``).
+    """
+
+    ticks_per_meter: float
+    track_m: float
+
+
+@dataclass(frozen=True)
 class DriveApplied:
     """What the airframe actually applied for a ``drive()`` request.
 
@@ -197,6 +210,12 @@ class Cockpit:
         reply = self._execute(_link.OP_GET_VERSION)
         return FirmwareVersion(major=reply.values["major"],
                                minor=reply.values["minor"])
+
+    def geometry(self) -> Geometry:
+        reply = self._execute(_link.OP_GET_GEOMETRY)
+        v = reply.values
+        return Geometry(ticks_per_meter=v["ticks_per_meter"],
+                        track_m=v["track_m"])
 
     # Internal helpers
 

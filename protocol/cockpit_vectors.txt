@@ -32,6 +32,7 @@ ping|request|ping
 arm|request|arm
 ARM|request|ARM
 get_state|request|get_state
+get_geometry|request|get_geometry
 drive 0.250 -0.100|request|drive|0.250|-0.100
   drive   0.250  -0.100  |request|drive|0.250|-0.100
 clear_fault|request|clear_fault
@@ -52,6 +53,7 @@ ok|get_state|state=ACTIVE|=ok get_state state=ACTIVE
 ok|get_state|state=FAULT fault=ESTOP|=ok get_state state=FAULT fault=ESTOP
 ok|get_odometry|lt=15320 rt=15294 vl=0.298 vr=0.301|=ok get_odometry lt=15320 rt=15294 vl=0.298 vr=0.301
 ok|get_version|fw=0.1|=ok get_version fw=0.1
+ok|get_geometry|tpm=10000 track=0.300|=ok get_geometry tpm=10000 track=0.300
 ok|drive||=ok drive
 ok|drive|lin=0.462 omega=0.923|=ok drive lin=0.462 omega=0.923
 err|drive|not_armed|state is SAFE|=err drive not_armed state is SAFE
@@ -75,6 +77,7 @@ stop|stop
 get_state|get_state
 get_odometry|get_odometry
 get_version|get_version
+get_geometry|get_geometry
 drive|0.25|-0.1|drive 0.250 -0.100
 drive|0|0|drive 0.000 0.000
 drive|-0.333|1.5|drive -0.333 1.500
@@ -83,6 +86,7 @@ drive|-0.333|1.5|drive -0.333 1.500
 =ok ping|ok|ping|
 =ok get_state state=ACTIVE|ok|get_state|state=ACTIVE
 =ok get_odometry lt=15320 rt=15294 vl=0.298 vr=0.301|ok|get_odometry|lt=15320 rt=15294 vl=0.298 vr=0.301
+=ok get_geometry tpm=10000 track=0.300|ok|get_geometry|tpm=10000 track=0.300
 =ok drive|ok|drive|
 =ok drive lin=0.462 omega=0.923|ok|drive|lin=0.462 omega=0.923
 =err drive not_armed state is SAFE|err|drive|not_armed|state is SAFE

@@ -143,6 +143,11 @@ class SimulatedCockpitLink(CockpitLink):
             })
         if op == _link.OP_GET_VERSION:
             return Reply({"major": 0, "minor": 1})
+        if op == _link.OP_GET_GEOMETRY:
+            # The airframe owns its geometry (spec section 3); the sim, as the
+            # firmware's mirror, reports the same numbers it simulates with.
+            return Reply({"ticks_per_meter": TICKS_PER_M,
+                          "track_m": 2.0 * self._half_track})
         raise CockpitNack("bad_op", op)
 
     def _drive_scale(self, left: float, right: float) -> float:
