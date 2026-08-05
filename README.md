@@ -1,4 +1,4 @@
-![AL Logo](AL_logo.svg)
+<img src="AL_logo.svg" alt="AL Logo" width="25%" />
 
 # Wanderer
 
