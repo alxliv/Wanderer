@@ -1,3 +1,5 @@
+![AL Logo](AL_logo.svg)
+
 # Wanderer
 
 An autonomous mobile research platform. The target architecture distributes control across
@@ -49,3 +51,7 @@ here: `firmware/common/protocol.h`, `firmware/common/tactical.h`,
 `firmware/rflink/main.cpp`, `protocol/base_text_protocol.md`, and
 `base/wanderer_client.py`. RF-Comms remains the standalone radio testbed; this
 repo is where the code evolves to fit the command architecture.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
