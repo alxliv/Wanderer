@@ -1,0 +1,66 @@
+# Line-ending policy.
+#
+# The repository is stored with LF, which is what every blob already committed
+# uses. Without this file a Windows checkout leaves CRLF in the working tree
+# while HEAD holds LF, so `git status` reports every file in the repo as
+# modified and a one-line change is invisible inside a whole-file diff.
+#
+# `text=auto eol=lf` tells git to normalize to LF on the way IN (commit) and
+# check out LF on the way OUT, on every platform. Editors on Windows handle LF
+# fine; the two file types that genuinely need CRLF are listed below.
+#
+# No history rewrite and no renormalization pass were needed here: the
+# committed blobs were already LF, so the clean filter makes the CRLF working
+# tree match HEAD immediately. If a stray file ever does linger as modified
+# with an empty diff, `git add --renormalize .` settles it.
+
+* text=auto eol=lf
+
+# ---- explicit text types (belt and braces for the auto-detector) ----------
+*.c        text eol=lf
+*.h        text eol=lf
+*.cpp      text eol=lf
+*.hpp      text eol=lf
+*.pio      text eol=lf
+*.py       text eol=lf
+*.sh       text eol=lf
+*.md       text eol=lf
+*.txt      text eol=lf
+*.cmake    text eol=lf
+*.json     text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.svg      text eol=lf
+*.conf     text eol=lf
+*.service  text eol=lf
+CMakeLists.txt text eol=lf
+LICENSE    text eol=lf
+.gitignore text eol=lf
+.gitmodules text eol=lf
+
+# ---- files that must keep CRLF -------------------------------------------
+# Windows batch interpreters can mis-parse LF-only scripts.
+*.bat      text eol=crlf
+*.cmd      text eol=crlf
+
+# ---- binary: never touch, never diff as text -----------------------------
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary
+*.ico      binary
+*.pdf      binary
+*.uf2      binary
+*.elf      binary
+*.bin      binary
+*.hex      binary
+*.exe      binary
+*.pdb      binary
+*.obj      binary
+*.o        binary
+*.a        binary
+*.lib      binary
+*.ilk      binary
+*.xlsx     binary
+*.docx     binary
+*.pptx     binary
