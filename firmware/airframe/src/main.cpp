@@ -11,14 +11,18 @@
 // constants already waiting in config.h) is its own upcoming step; nothing
 // in the cockpit protocol changes when it lands.
 //
-// stdio stays on USB CDC for bench logs (`*` lines); the Pico2 UART
-// carries ONLY protocol lines.
+// stdio stays on USB CDC, which now carries the SYSTEM BACKDOOR (arch 3a)
+// as well as bench logs (`*` lines); the Pico2 UART carries ONLY cockpit
+// protocol lines. Two ports, two line assemblers, one FSM -- and one motion
+// lease (tac_dev_*) deciding which of them may move a wheel.
 
 #include <stdio.h>
 
 #include "pico/stdlib.h"
+#include "pico/stdio_usb.h"
 #include "hardware/uart.h"
 
+#include "backdoor_handler.h"
 #include "cockpit_handler.h"
 #include "tactical.h"
 #include "config.h"
@@ -48,6 +52,27 @@ static void pico2_uart_init(void)
     uart_set_fifo_enabled(PICO2_UART, true);
 }
 
+// ---- backdoor transport (USB CDC) -----------------------------------------
+
+// Bench logs and backdoor replies share the CDC port; both are line-oriented
+// and the `*` sigil keeps logs classifiable as ignorable by any parser.
+static void backdoor_line_out(const char *line)
+{
+    printf("%s\r\n", line);
+}
+
+// Raw per-mille held between control periods. Only ever applied while the
+// backdoor holds the motion lease AND a wiggle is outstanding.
+static int16_t s_bdLeft, s_bdRight;
+
+static void backdoor_motor_out(int16_t left_permille, int16_t right_permille)
+{
+    s_bdLeft = left_permille;
+    s_bdRight = right_permille;
+}
+
+static void backdoor_encoders(int32_t *left_ticks, int32_t *right_ticks);
+
 // ---- odometry --------------------------------------------------------------
 
 // Updated by the control loop, read by the cockpit's get_odometry.
@@ -60,6 +85,14 @@ static void odometry_provider(int32_t *lt, int32_t *rt, float *vl, float *vr)
     *rt = s_odom_sample.right_ticks;
     *vl = (float)s_vl_mm_s / 1000.0f;
     *vr = (float)s_vr_mm_s / 1000.0f;
+}
+
+// The backdoor reads the same cached sample, so `enc` and `get_odometry`
+// can never disagree about where the wheels are.
+static void backdoor_encoders(int32_t *left_ticks, int32_t *right_ticks)
+{
+    *left_ticks = s_odom_sample.left_ticks;
+    *right_ticks = s_odom_sample.right_ticks;
 }
 
 // ---- open-loop motor mapping ----------------------------------------------
@@ -90,8 +123,15 @@ int main(void)
     // Relay sink deliberately not set: `^` payloads are dropped until the
     // RF modem hat lands (cockpit spec section 4).
 
+    backdoor_init(backdoor_line_out, FW_VERSION_MAJOR, FW_VERSION_MINOR);
+    backdoor_set_motor_sink(backdoor_motor_out);
+    backdoor_set_encoder_provider(backdoor_encoders, encoders_reset);
+
     printf("*airframe fw %u.%u cockpit on pico2 uart0 @%u\r\n",
            FW_VERSION_MAJOR, FW_VERSION_MINOR, (unsigned)PICO2_UART_BAUD);
+    printf("*backdoor on usb cdc -- type `help`\r\n");
+
+    bool usb_was_connected = stdio_usb_connected();
 
     const uint32_t control_period_us = 1000000u / CONTROL_HZ;
     uint64_t next_control = now_us();
@@ -100,6 +140,20 @@ int main(void)
         // Pump every waiting cockpit byte; time-stamp at arrival.
         while (uart_is_readable(PICO2_UART))
             cockpit_feed((char)uart_getc(PICO2_UART), now_us());
+
+        // Pump the backdoor. Non-blocking: getchar_timeout_us(0) returns
+        // PICO_ERROR_TIMEOUT when the CDC buffer is empty, so the control
+        // loop is never held up by an idle bench terminal.
+        int ch;
+        while ((ch = getchar_timeout_us(0)) != PICO_ERROR_TIMEOUT)
+            backdoor_feed((char)ch, now_us());
+
+        // An unplugged cable must stop the wheels, not leave them latched at
+        // whatever duty the last wiggle set.
+        const bool usb_now = stdio_usb_connected();
+        if (usb_was_connected && !usb_now)
+            backdoor_abort();
+        usb_was_connected = usb_now;
 
         const uint64_t t = now_us();
         if (t >= next_control) {
@@ -117,9 +171,23 @@ int main(void)
             // FSM housekeeping: deadman and fallback ramp.
             tac_tick(t);
 
-            // Targets -> wheels. SAFE/FAULT gate to zero via motors_stop so
-            // the driver's outputs are unambiguous, not merely zero-valued.
-            if (tac_motors_enabled())
+            // Backdoor housekeeping BEFORE the mux: expires the wiggle
+            // deadline and zeroes s_bd* on lease loss, so the decision below
+            // always reads a current command.
+            backdoor_tick(t);
+
+            // Motor mux. The two motion paths are mutually exclusive by
+            // construction: the bench path requires the dev lease, and the
+            // lease can only be held while the FSM is SAFE (where
+            // tac_motors_enabled() is false). Bench first, so that even a
+            // hypothetical overlap resolves toward the operator standing next
+            // to the robot rather than the absent Pilot.
+            //
+            // SAFE/FAULT gate to zero via motors_stop so the driver's outputs
+            // are unambiguous, not merely zero-valued.
+            if (tac_dev_active() && backdoor_wiggle_active())
+                motors_set(s_bdLeft, s_bdRight, DEFAULT_MAX_PWM);
+            else if (tac_motors_enabled())
                 motors_set(permille_from_mm_s(tac_target_left()),
                            permille_from_mm_s(tac_target_right()),
                            DEFAULT_MAX_PWM);

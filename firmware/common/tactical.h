@@ -20,6 +20,11 @@ constexpr int32_t  FALLBACK_DECEL_MM_S2 = 800;   // bounded decel in (mm/s)/s
 #define TAC_ERR_NO_FAULT       -3
 #define TAC_ERR_FAULT_PERSISTS -4
 #define TAC_ERR_INVALID_FAULT  -5
+// Dev-mode / authority gate (architecture section 3a).
+#define TAC_ERR_COMMANDER_PRESENT -6
+#define TAC_ERR_NOT_SAFE          -7
+#define TAC_ERR_DEV_ACTIVE        -8
+#define TAC_ERR_DEV_INACTIVE      -9
 
 // The Wanderer's vehicle FSM. One vehicle, one FSM: this is a module with
 // internal state, not a class -- there is never a second instance.
@@ -58,8 +63,32 @@ const char *tac_state_name(TacticalState s);
 const char *tac_fault_name(uint16_t code);
 
 // Liveness: ANY valid commander frame, fed at the transport boundary.
+// Also the authority interlock: a commander frame arriving while dev mode is
+// held REVOKES it (the Pilot showing up always wins -- see tac_dev_acquire).
 void tac_note_commander_alive(uint64_t now_us);
 bool is_tac_commander_alive(uint64_t now_us);
+
+// ---- dev mode: the backdoor authority gate (architecture section 3a) ------
+//
+// The backdoor's one motion-capable operation (raw bench wiggle) must never
+// be able to fight the Pilot. Rather than a flag on an existing call, motion
+// authority is an explicit lease held by at most one commander:
+//
+//   - The cockpit (UART/Pi5) is the sole MOTION commander and needs no lease;
+//     it simply drives, and its liveness revokes any dev lease outstanding.
+//   - The backdoor must ACQUIRE the dev lease before any raw motion, and is
+//     granted it only when the Pilot is demonstrably absent.
+//
+// Granting requires ALL of: state SAFE, no latched fault, and no live
+// commander. The lease is dropped by tac_dev_release(), by any commander
+// frame, and by any fault (including ESTOP, which is honored from any source
+// at any time -- a hardware kill is never gated).
+//
+// While the lease is held tac_arm() is refused: ground crew has the hatch
+// open, so the aircraft does not become flyable underneath them.
+int  tac_dev_acquire(uint64_t now_us);
+void tac_dev_release(void);
+bool tac_dev_active(void);
 
 // Periodic: run the current state function. Call every loop.
 void tac_tick(uint64_t now_us);

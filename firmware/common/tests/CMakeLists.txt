@@ -38,3 +38,12 @@ add_executable(test_handler
 )
 target_include_directories(test_handler PRIVATE ..)
 add_test(NAME handler COMMAND test_handler)
+
+add_executable(test_backdoor
+    test_backdoor.cpp
+    ../backdoor_handler.cpp
+    ../cockpit_codec.cpp
+    ../tactical.cpp
+)
+target_include_directories(test_backdoor PRIVATE ..)
+add_test(NAME backdoor COMMAND test_backdoor)

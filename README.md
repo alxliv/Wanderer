@@ -28,13 +28,14 @@ docs/       Architecture documents and photos (start here)
 hardware/   BOM, wiring, pinouts, power budget
 protocol/   Protocol status plus the normative Base↔dongle text specification
 firmware/   All Pico firmware — one pico-sdk CMake tree, multiple targets
-  common/     Shared C++: RF binary protocol frames, TacticalCore FSM
+  common/     Shared C++: RF binary protocol frames, TacticalCore FSM,
+              cockpit codec/handler, system-backdoor handler
   airframe/   Rover Pico2: motor/encoder drivers and bring-up test; legacy/ = old I2C main
   rflink/     Transitional dual-role RF firmware imported from RF-Comms (proven)
   lib/RF24/   nRF24L01 driver (git submodule, pinned)
 pilot/      Python cockpit API and simulator; real Pi5 strategic layer is planned
 base/       Base-station PC software — interactive Python serial CLI
-tools/      Placeholder for future development utilities (currently empty)
+tools/      backdoor.py — bench console + automatic motor calibration over USB CDC
 ```
 
 After cloning, fetch the RF24 submodule:

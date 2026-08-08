@@ -14,6 +14,7 @@ static int16_t  s_rampLeft, s_rampRight;    // fallback ramp output
 static uint16_t s_faultCode = FAULT_NONE;
 
 static bool     s_seen;                     // any commander frame ever
+static bool     s_devActive;                // backdoor holds the motion lease
 static uint64_t s_lastSeenUs;
 static uint64_t s_nowUs;
 static uint64_t s_lastTickUs;
@@ -26,6 +27,7 @@ void tac_init(void)
     s_cmdLeft = s_cmdRight = s_rampLeft = s_rampRight = 0;
     s_faultCode = FAULT_NONE;
     s_seen = false;
+    s_devActive = false;
     s_lastSeenUs = s_nowUs = s_lastTickUs = 0;
 }
 
@@ -58,6 +60,8 @@ int tac_arm(void)
 {
     if (s_state == TacticalState::Fault)
         return TAC_ERR_FAULT_LATCHED;
+    if (s_devActive)             // ground crew has the hatch open
+        return TAC_ERR_DEV_ACTIVE;
     if (s_state == TacticalState::Safe)
         transition_to(TacticalState::Active);
     return TAC_OK;       // ACTIVE/FALLBACK: no-op ok; arm never exits FALLBACK
@@ -106,6 +110,7 @@ int tac_raise_fault(uint16_t code)
         return TAC_OK;               // preserve the first latched cause
     s_faultCode = code;              // latch before the callback reads it
     clear_targets();
+    s_devActive = false;             // a fault ends any bench session outright
     transition_to(TacticalState::Fault);
     return TAC_OK;
 }
@@ -131,6 +136,10 @@ const char *tac_strerror(int rc)
     case TAC_ERR_NO_FAULT:       return "no_fault";
     case TAC_ERR_FAULT_PERSISTS: return "fault_persists";
     case TAC_ERR_INVALID_FAULT:  return "invalid_fault";
+    case TAC_ERR_COMMANDER_PRESENT: return "commander_present";
+    case TAC_ERR_NOT_SAFE:          return "not_safe";
+    case TAC_ERR_DEV_ACTIVE:        return "dev_active";
+    case TAC_ERR_DEV_INACTIVE:      return "dev_inactive";
     }
     return "unknown";
 }
@@ -161,12 +170,33 @@ void tac_note_commander_alive(uint64_t now_us)
 {
     s_seen = true;
     s_lastSeenUs = now_us;
+    // Authority interlock: the Pilot has spoken, so the bench lease ends here
+    // and now. Revoking on ARRIVAL rather than on the next acquire attempt is
+    // the whole point -- a wiggle in flight must never be one command late.
+    s_devActive = false;
 }
 
 bool is_tac_commander_alive(uint64_t now_us)
 {
     return s_seen && (now_us - s_lastSeenUs) < LIVENESS_TIMEOUT_MS * 1000ull;
 }
+
+// ---- dev mode -------------------------------------------------------------
+
+int tac_dev_acquire(uint64_t now_us)
+{
+    if (s_state == TacticalState::Fault)
+        return TAC_ERR_FAULT_LATCHED;
+    if (s_state != TacticalState::Safe)
+        return TAC_ERR_NOT_SAFE;
+    if (is_tac_commander_alive(now_us))
+        return TAC_ERR_COMMANDER_PRESENT;
+    s_devActive = true;
+    return TAC_OK;
+}
+
+void tac_dev_release(void) { s_devActive = false; }
+bool tac_dev_active(void)  { return s_devActive; }
 
 // ---- state functions: only the time-driven behavior lives here ------------
 

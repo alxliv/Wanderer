@@ -431,15 +431,25 @@ receive `ticks_per_meter` (today only `half_track_m` crosses that boundary;
 the tick calibration lives in `airframe/src/config.h`), so it lands with the
 next firmware pass alongside the UART event wiring above.
 
-**Open requirement — the backdoor authority gate.** Architecture §3a requires
-the raw/open-loop motion surface to be gated to a Pi5-absent / dev mode, so the
-Base cannot command wheels while the Pilot believes it is flying. Nothing
-implements that gate today. It is currently *unreachable* rather than broken:
-`wanderer_airframe` has no radio and `wanderer_rflink` has no cockpit, so the
-two motion paths never coexist in one binary. When `wanderer_dongle` lands and
-the airframe carries both a cockpit and an RF backdoor, the gate must land with
-it — `tactical.h` has no notion of a commander *identity* or a dev mode today,
-so this is new FSM surface, not a flag on an existing call.
+**The backdoor authority gate — implemented.** Architecture §3a requires the
+raw/open-loop motion surface to be gated to a Pi5-absent / dev mode, so the
+Base cannot command wheels while the Pilot believes it is flying. This landed
+with the USB-CDC backdoor as new FSM surface (a *motion lease*), not a flag on
+an existing call: `tac_dev_acquire()` / `tac_dev_release()` / `tac_dev_active()`
+in `tactical.h`.
+
+The lease is granted only when the FSM is SAFE, no fault is latched, and no
+commander is live by the §5 liveness rule. It is revoked *on arrival* of any
+commander frame — `tac_note_commander_alive()` drops it — so a wiggle can never
+be one command late in yielding to the Pilot. `tac_arm()` is refused while it
+is held. ESTOP remains ungated from any source.
+
+The gate is exercised over USB CDC today (`firmware/common/backdoor_handler.cpp`,
+host tests in `tests/test_backdoor.cpp`, bench procedure in
+`docs/motor_calibration.md`). **When `wanderer_dongle` lands and the airframe
+carries an RF backdoor as well, that path acquires the same lease** — the
+authority rule is already in the FSM, so the radio inherits it rather than
+re-implementing it.
 
 ---
 
