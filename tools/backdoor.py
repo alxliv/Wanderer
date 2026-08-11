@@ -19,6 +19,8 @@ without further input:
   * L/R asymmetry     -- the difference between the two, which is what makes a
                          rover veer at low speed
 
+    python tools/backdoor.py --calibrate-floor   # ticks per metre, ~1 m creep
+
 It prints a config.h-ready block at the end.
 
 SAFETY -- read before running with motor power on:
@@ -33,6 +35,7 @@ Requires pyserial:  pip install pyserial
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 import time
 from dataclasses import dataclass, field
@@ -174,6 +177,24 @@ class Backdoor:
             return int(fields["motor_left_sign"]), int(fields["motor_right_sign"])
         except (KeyError, ValueError):
             return None, None
+
+    def cfg_ticks_per_m(self) -> float | None:
+        """DEFAULT_TICKS_PER_METER as currently compiled in."""
+        fields = reply_fields(self.request("cfg"))
+        try:
+            return float(fields["ticks_per_m"])
+        except (KeyError, ValueError):
+            return None
+
+    def cfg_max_speed(self) -> int | None:
+        """DEFAULT_MAX_SPEED_MM_S -- the divisor in permille_from_mm_s(), and
+        so the constant that turns a per-mille deadband into the mm/s below
+        which a drive command silently does nothing."""
+        fields = reply_fields(self.request("cfg"))
+        try:
+            return int(fields["max_speed_mm_s"])
+        except (KeyError, ValueError):
+            return None
 
     def cfg_enc_signs(self) -> tuple[int | None, int | None]:
         """The ENC_*_SIGN values the running firmware compiled in.
@@ -321,6 +342,7 @@ class Results:
     right_rotation_ok: bool | None = None
     cfg_motor_left_sign: int | None = None
     cfg_motor_right_sign: int | None = None
+    cfg_max_speed_mm_s: int | None = None
     swapped: bool = False
     crosstalk: list[str] = field(default_factory=list)
     deadband: dict[str, int | None] = field(default_factory=dict)
@@ -438,6 +460,7 @@ def check_wiring(bd: Backdoor, args, res: Results) -> None:
     # Learn what the firmware is currently applying, so an observation can be
     # turned into a verdict rather than a bare sign.
     res.cfg_left_sign, res.cfg_right_sign = bd.cfg_enc_signs()
+    res.cfg_max_speed_mm_s = bd.cfg_max_speed()
     if res.cfg_left_sign is None:
         print("    (firmware does not report `cfg`; sign verdicts only, no values)")
     else:
@@ -569,17 +592,67 @@ def report(res: Results, args) -> None:
             print(f"  Below {max(l, r)} permille a straight-line command in {label}")
             print(f"  turns the robot toward the {drift}: one wheel spins, one sits still.")
 
-    # Per-wheel directional asymmetry: a wheel much stiffer one way than the
-    # other points at a mechanical cause (bearing preload, gearbox backlash,
-    # brush wear) rather than at anything in the firmware.
+    # Directional asymmetry -- stiffer one way than the other. Whether this
+    # points at one wheel or at the drivetrain depends entirely on whether
+    # BOTH wheels lean the same way, so decide that before saying anything:
+    # advising "check the bearing on that side" is wrong when the answer is
+    # "both sides do this, so it is not a side".
+    skew = {}
     for wheel in ("left", "right"):
         f, r = res.deadband.get(f"{wheel}_fwd"), res.deadband.get(f"{wheel}_rev")
-        if f is not None and r is not None and abs(f - r) >= 2 * args.fine:
-            stiff = "reverse" if r > f else "forward"
-            print(f"\nThe {wheel} wheel is markedly stiffer in {stiff}"
-                  f" ({f} fwd vs {r} rev).")
-            print("  A directional difference this large is mechanical, not electrical:")
-            print("  check bearing preload, gearbox drag and cable routing on that side.")
+        skew[wheel] = None if (f is None or r is None) else r - f
+
+    # Below 3 sweep steps the difference is a couple of resolution units and
+    # not worth a diagnosis either way.
+    floor = 3 * args.fine
+    both = all(v is not None for v in skew.values())
+    common = both and skew["left"] * skew["right"] > 0 and \
+        min(abs(skew["left"]), abs(skew["right"])) >= args.fine
+
+    if common:
+        stiff = "reverse" if skew["left"] > 0 else "forward"
+        print(f"\nBOTH wheels are stiffer in {stiff}"
+              f" (left {abs(skew['left'])}, right {abs(skew['right'])} permille).")
+        print("  A directional bias shared by both sides is not two coincidental")
+        print("  faults -- it is common-mode. Look at what the wheels have in")
+        print("  common: identical gearmotors with the same internal asymmetry,")
+        print("  brush timing optimised for one direction, or the driver's")
+        print("  direction-change handling. Checking one side's bearings will not")
+        print("  find it.")
+    else:
+        for wheel in ("left", "right"):
+            s = skew[wheel]
+            if s is None or abs(s) < floor:
+                continue
+            f, r = res.deadband[f"{wheel}_fwd"], res.deadband[f"{wheel}_rev"]
+            print(f"\nThe {wheel} wheel alone is stiffer in"
+                  f" {'reverse' if s > 0 else 'forward'} ({f} fwd vs {r} rev),")
+            print("  while the other wheel is not. A one-sided directional")
+            print("  difference is mechanical: check bearing preload, gearbox drag")
+            print("  and cable routing on that side.")
+
+    # The most actionable number: where the open-loop map goes dead. Uses the
+    # board's own DEFAULT_MAX_SPEED_MM_S, since that is the constant
+    # permille_from_mm_s() actually divides by.
+    if known and res.cfg_max_speed_mm_s:
+        worst_pm = max(known)
+        floor_cmd = worst_pm * res.cfg_max_speed_mm_s / 1000.0
+        print(f"\nOpen-loop floor. permille_from_mm_s() computes"
+              f" mm_s * 1000 / {res.cfg_max_speed_mm_s},")
+        print(f"  so the {worst_pm} permille deadband is reached at a COMMAND of"
+              f" {floor_cmd:.0f}:")
+        print(f"      drive {floor_cmd:.0f} mm/s -> {worst_pm} permille")
+        print(f"  Any drive command below {floor_cmd:.0f} produces less duty than"
+              " that and moves")
+        print("  nothing, while the cockpit still answers =ok.")
+        print("\n  Read that as a threshold on the NUMBER COMMANDED, which is exact:"
+              "\n  both the map and the deadband are in per-mille, so it holds"
+              " whatever\n  the rover's true top speed turns out to be. It is NOT a"
+              " ground speed."
+              f"\n  DEFAULT_MAX_SPEED_MM_S = {res.cfg_max_speed_mm_s} is still a"
+              " placeholder marked"
+              "\n  'calibrate', so what the rover physically does at that command is"
+              "\n  unmeasured until the floor roll.")
 
     if known:
         worst = max(known)
@@ -674,6 +747,375 @@ def calibrate(bd: Backdoor, args) -> int:
 
 
 # --------------------------------------------------------------------------
+# floor calibration: ticks per metre, seeded by wheel geometry
+# --------------------------------------------------------------------------
+#
+# The operator supplies two measured facts before anything moves:
+#
+#   ticks per WHEEL revolution -- turned by hand, several turns, divided
+#   wheel diameter in mm
+#
+# From those, ticks/m = ticks_per_rev / (pi * D). That seed is good to a few
+# percent -- enough to decide when to stop rolling. Measuring at the WHEEL
+# rather than the motor makes it independent of gearbox ratio and encoder PPR:
+# whatever sits between motor and rim, the composite is what gets counted.
+#
+# The seed only picks the stopping point. The result comes from the tape, so
+# overshoot does not matter and none of this needs to be precise.
+
+@dataclass
+class FloorResults:
+    ticks_per_rev: tuple[float, float] | None = None
+    wheel_diameter_mm: float | None = None
+    seed_ticks_per_m: float | None = None
+    left_ticks: int = 0
+    right_ticks: int = 0
+    elapsed_s: float = 0.0
+    distance_mm: float | None = None
+    ticks_per_m: float | None = None
+    mean_speed_mm_s: float | None = None
+    roll_duty: int = 0
+    cfg_ticks_per_m: float | None = None
+
+
+def ask_float(prompt: str, minimum: float = 0.0) -> float | None:
+    for _ in range(5):
+        try:
+            raw = input(f"  {prompt}: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if raw.lower() in ("q", "quit", "abort"):
+            return None
+        try:
+            value = float(raw)
+        except ValueError:
+            print("  Enter a number.")
+            continue
+        if value <= minimum:
+            print(f"  Must be greater than {minimum:g}.")
+            continue
+        return value
+    return None
+
+
+def wait_enter(message: str) -> bool:
+    """Pause until the operator acknowledges. False if they give up."""
+    try:
+        input(f"  {message} ")
+        return True
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+
+
+def wait_for_key(key: str, message: str) -> bool:
+    """Require a specific keypress, not a bare Enter.
+
+    Used where the next thing that happens is the rover driving off: a
+    distracted Enter must not be what starts it.
+    """
+    while True:
+        try:
+            got = input(f"  {message} ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return False
+        if got == key.lower():
+            return True
+        if got in ("q", "quit", "abort"):
+            return False
+        print(f"  Type {key} and press Enter, or q to abort.")
+
+
+def measure_ticks_per_rev(bd: Backdoor, wheel: str, turns: int) -> float | None:
+    """Guide the operator through turning one wheel by hand, and count.
+
+    The operator turns and counts whole revolutions; the tool does the
+    zeroing, the reading and the division. Several turns rather than one
+    because the error in judging "back to the mark" divides by the count.
+    """
+    other = "right" if wheel == "left" else "left"
+
+    while True:
+        print(f"\n  --- {wheel.upper()} wheel ---")
+        print(f"  1. Make sure the {wheel} wheel is clear of the floor and can")
+        print("     turn freely by hand.")
+        print("  2. Put a mark on the wheel and note where it starts.")
+        if not wait_enter("Press ENTER when you are ready to start counting."):
+            return None
+
+        bd.request("enc reset")
+        print("  Counters zeroed.")
+        print(f"\n  Now turn the {wheel.upper()} wheel by hand {turns} FULL turns,")
+        print("  in the direction that would drive the rover FORWARD.")
+        print(f"  Stop with the mark back where it started after turn {turns}.")
+        if not wait_enter("Press ENTER when the turns are done."):
+            return None
+
+        left, right = bd.enc()
+        counted = left if wheel == "left" else right
+        crosstalk = right if wheel == "left" else left
+
+        print(f"\n  {wheel} counted {counted} ticks over {turns} turns"
+              f"  ->  {counted / turns:.1f} ticks per revolution")
+
+        if counted == 0:
+            print(f"  !! Zero ticks. The {wheel} encoder is not being read.")
+        elif counted < 0:
+            print("  !! Negative. The wheel was turned BACKWARD relative to")
+            print("     forward travel. Turn it the other way and retry.")
+        if abs(crosstalk) > abs(counted) * 0.05 and abs(crosstalk) > 20:
+            print(f"  !! The {other} counter also moved by {crosstalk} ticks.")
+            print(f"     Either the {other} wheel turned too, or the encoders are")
+            print("     cross-wired.")
+
+        answer = ask_yes_no("Is this number OK?")
+        if answer is None:
+            return None
+        if answer:
+            return counted / turns
+        print("  Fine -- let us do that wheel again.")
+
+
+def collect_geometry(bd: Backdoor, args, res: FloorResults) -> bool:
+    """Ticks per wheel revolution, both wheels, then the wheel diameter."""
+    print("\n" + "-" * 68)
+    print("STEP 2 of 4 -- how many ticks in one wheel turn")
+    print("-" * 68)
+    print("The rover cannot know this, so we measure it by hand. You turn each")
+    print(f"wheel {args.turns} full turns; the tool zeroes the counter, reads it")
+    print("back and does the arithmetic.")
+    print("\nKeep the rover raised for this step.")
+
+    left = measure_ticks_per_rev(bd, "left", args.turns)
+    if left is None:
+        return False
+    right = measure_ticks_per_rev(bd, "right", args.turns)
+    if right is None:
+        return False
+    res.ticks_per_rev = (left, right)
+
+    spread = abs(left - right) / max(abs(left), abs(right), 1.0)
+    print(f"\n  left {left:.1f} ticks/rev, right {right:.1f} ticks/rev"
+          f"  (differ by {spread:.1%})")
+    if spread > 0.02:
+        print("  !! Over 2% apart. One shared ticks-per-metre cannot be right for")
+        print("     both wheels. Worth recounting before going on.")
+        if ask_yes_no("Continue anyway?") is not True:
+            return False
+
+    print("\n" + "-" * 68)
+    print("STEP 3 of 4 -- wheel diameter")
+    print("-" * 68)
+    print("Measure across the wheel, through the centre, at the height where it")
+    print("touches the floor. Millimetres.")
+    diameter = ask_float("Wheel diameter in mm")
+    if diameter is None:
+        return False
+    res.wheel_diameter_mm = diameter
+
+    circumference_mm = math.pi * diameter
+    mean_tpr = (left + right) / 2.0
+    res.seed_ticks_per_m = mean_tpr / (circumference_mm / 1000.0)
+
+    print(f"\n  One turn moves the rover pi x {diameter:.1f}"
+          f" = {circumference_mm:.1f} mm")
+    print(f"  So roughly {res.seed_ticks_per_m:.0f} ticks per metre.")
+    print("  That is only an estimate -- it decides how far to roll. The real")
+    print("  number comes from your tape measure at the end.")
+    return True
+
+
+def creep_to_ticks(bd: Backdoor, args, res: FloorResults,
+                   target_ticks: float) -> bool:
+    """Roll slowly in short pulses until the tick target is passed.
+
+    Chained pulses only because the firmware caps one wiggle at
+    BACKDOOR_MAX_WIGGLE_MS. Overshoot past the target does not matter: the
+    tape measures whatever actually happened, so the target is just "roll
+    about this far", not a quantity to hit precisely.
+    """
+    bd.request("enc reset")
+    started = time.monotonic()
+    left = right = 0
+
+    for pulse in range(1, args.roll_max_pulses + 1):
+        bd.wiggle(args.roll_duty, args.roll_duty, args.roll_pulse_ms)
+        bd.await_event("!wiggle_done", timeout=args.roll_pulse_ms / 1000.0 + 4.0)
+        time.sleep(0.15)
+        left, right = bd.enc()
+        elapsed = time.monotonic() - started
+
+        mean = (left + right) / 2.0
+        mm = mean / res.seed_ticks_per_m * 1000.0
+        speed = mm / elapsed if elapsed > 0 else 0.0
+        print(f"    pulse {pulse:>2}:  L{left:>7} R{right:>7}"
+              f"   ~{mm:>6.0f} mm   ~{speed:>5.0f} mm/s")
+
+        if pulse == 1 and abs(mean) < 10:
+            print("\n    !! No movement. On the floor the wheels carry the chassis,")
+            print("       so breakaway is higher than the raised-bench figure.")
+            print(f"       Raise --roll-duty above {args.roll_duty} and retry.")
+            return False
+
+        if mean >= target_ticks:
+            break
+    else:
+        print(f"\n    Gave up after {args.roll_max_pulses} pulses. Measure whatever")
+        print("    it travelled -- the result comes from the tape either way.")
+
+    res.left_ticks, res.right_ticks = left, right
+    res.elapsed_s = time.monotonic() - started
+    return True
+
+
+def measure_floor(bd: Backdoor, args, res: FloorResults) -> bool:
+    target_ticks = res.seed_ticks_per_m * args.target_mm / 1000.0
+    res.roll_duty = args.roll_duty
+
+    print("\n" + "-" * 68)
+    print("STEP 4 of 4 -- the measured roll")
+    print("-" * 68)
+    print("What happens next:")
+    print(f"  * The rover drives FORWARD, slowly, at {args.roll_duty} permille.")
+    print(f"  * It stops on its own after about {args.target_mm:.0f} mm.")
+    print("  * Then you measure how far it actually went, and type that in.")
+    print("\nBefore you start:")
+    print("  1. Put the rover down on the floor, wheels on the ground.")
+    print("  2. Line it up on a start mark, straight along a tape measure.")
+    print("  3. Pick one point on the rover -- a corner, a bolt -- and note where")
+    print("     it sits. You will measure to that SAME point at the end.")
+    print("  4. Lay out the USB cable so it stays slack for the whole metre.")
+    print("  5. Keep the path clear.")
+
+    if not wait_for_key("s", "Type s and press Enter to start the roll (q aborts):"):
+        print("  Aborted.")
+        return False
+
+    print()
+    if not creep_to_ticks(bd, args, res, target_ticks):
+        return False
+
+    mean = (res.left_ticks + res.right_ticks) / 2.0
+    print(f"\n  Stopped. left={res.left_ticks} right={res.right_ticks}"
+          f"  mean={mean:.0f} ticks in {res.elapsed_s:.1f}s")
+
+    ratio = res.left_ticks / res.right_ticks if res.right_ticks else 0.0
+    if abs(ratio - 1.0) > args.veer_tolerance:
+        print(f"  !! left/right tick ratio {ratio:.3f} -- the rover did not run")
+        print("     straight, so one distance describes neither wheel's path.")
+        if ask_yes_no("Use this roll anyway?") is not True:
+            return False
+
+    print("\n  Now measure the straight-line distance the rover travelled,")
+    print("  from the start mark to the SAME reference point on the rover.")
+    distance = ask_float("Distance in mm (q to abort)")
+    if distance is None:
+        return False
+
+    res.distance_mm = distance
+    res.ticks_per_m = mean / (distance / 1000.0)
+    res.mean_speed_mm_s = distance / res.elapsed_s if res.elapsed_s else None
+    return True
+
+
+def report_floor(res: FloorResults, args) -> None:
+    print("\n" + "=" * 68)
+    print("FLOOR CALIBRATION RESULT")
+    print("=" * 68)
+
+    if not res.ticks_per_m:
+        print("\nNothing measured.")
+        return
+
+    print(f"\nSeed from geometry : {res.seed_ticks_per_m:>9.0f} ticks/m")
+    print(f"Measured on floor  : {res.ticks_per_m:>9.0f} ticks/m")
+    error = (res.ticks_per_m - res.seed_ticks_per_m) / res.seed_ticks_per_m
+    print(f"Seed error         : {error:>+9.1%}")
+
+    # Invert the measurement back into a diameter. Far from the tape-measured
+    # wheel means something is wrong -- most likely a miscounted ticks/rev.
+    mean_tpr = sum(res.ticks_per_rev) / 2.0
+    d_eff = mean_tpr / res.ticks_per_m * 1000.0 / math.pi
+    print(f"\nImplied rolling diameter: {d_eff:.1f} mm"
+          f"  (measured wheel: {res.wheel_diameter_mm:.1f} mm)")
+    if abs(error) > 0.10:
+        print("  Over 10% from the seed. Recount ticks/rev and re-measure the")
+        print("  wheel before accepting this.")
+
+    if res.mean_speed_mm_s:
+        print(f"\nMean speed over the roll: {res.mean_speed_mm_s:.0f} mm/s"
+              f" at {res.roll_duty} permille (includes the pauses between pulses).")
+
+    print("\nSuggested config.h change:")
+    print(f"  /* Floor-measured {time.strftime('%Y-%m-%d')}:"
+          f" {(res.left_ticks + res.right_ticks) / 2.0:.0f} ticks over"
+          f" {res.distance_mm:.0f} mm,")
+    print(f"     seeded from {mean_tpr:.0f} ticks/rev and a"
+          f" {res.wheel_diameter_mm:.0f} mm wheel. */")
+    print(f"  #define DEFAULT_TICKS_PER_METER  {res.ticks_per_m:.1f}f")
+
+    if res.cfg_ticks_per_m:
+        change = (res.ticks_per_m - res.cfg_ticks_per_m) / res.cfg_ticks_per_m
+        print(f"\n  Firmware currently uses {res.cfg_ticks_per_m:.0f} ({change:+.0%}).")
+        if abs(change) > 0.2:
+            print("  Every distance and velocity the cockpit has reported so far was")
+            print("  wrong by about that much.")
+
+
+def calibrate_floor(bd: Backdoor, args) -> int:
+    """Guided, four steps, no arguments needed."""
+    print("\n" + "=" * 68)
+    print("FLOOR CALIBRATION -- how many encoder ticks in one metre")
+    print("=" * 68)
+    print("Four steps, and the tool will walk you through each one:")
+    print("  1. Check both wheels turn the right way.")
+    print(f"  2. Turn each wheel {args.turns} times by hand, to count ticks per turn.")
+    print("  3. Measure the wheel diameter.")
+    print("  4. Let the rover drive about a metre, then measure how far it went.")
+    print("\nSteps 1-3 need the rover RAISED, wheels off the floor.")
+    print("Step 4 needs it back down on the floor.")
+    print("\nHave ready: a tape measure, and a clear straight metre of hard floor.")
+
+    if not wait_enter("Press ENTER to begin."):
+        return 1
+
+    bd.ver()
+    apply_limits(bd, args)
+    if not acquire_dev(bd):
+        return 1
+
+    res = FloorResults()
+    res.cfg_ticks_per_m = bd.cfg_ticks_per_m()
+
+    ok = False
+    try:
+        print("\n" + "-" * 68)
+        print("STEP 1 of 4 -- wheel rotation direction")
+        print("-" * 68)
+        print("Rover RAISED, both wheels clear of the floor.")
+        if not wait_enter("Press ENTER when it is raised and safe."):
+            return 1
+
+        rotation = Results()
+        if not check_rotation(bd, args, rotation):
+            return 1
+
+        if not collect_geometry(bd, args, res):
+            return 1
+        ok = measure_floor(bd, args, res)
+    finally:
+        bd.dev(False)
+        print("\ndev mode released.")
+
+    if ok:
+        report_floor(res, args)
+        return 0
+    return 1
+
+
+# --------------------------------------------------------------------------
 # interactive console
 # --------------------------------------------------------------------------
 
@@ -742,7 +1184,10 @@ def main() -> int:
         description="Wanderer airframe backdoor client and motor calibration.")
     ap.add_argument("--port", help="serial port (default: autodetect the Pico)")
     ap.add_argument("--calibrate", action="store_true",
-                    help="run the automatic calibration instead of the console")
+                    help="raised-wheel calibration: rotation, encoders, deadband")
+    ap.add_argument("--calibrate-floor", action="store_true",
+                    help="guided ticks-per-metre measurement. Asks for "
+                         "everything it needs; bring a tape measure.")
     ap.add_argument("--verbose", "-v", action="store_true", help="echo the wire traffic")
     ap.add_argument("--yes", action="store_true",
                     help="skip the wheels-off-the-ground confirmation")
@@ -767,6 +1212,22 @@ def main() -> int:
     sweep.add_argument("--skip-rotation-check", action="store_true",
                        help="skip the operator-confirmed rotation check. Only "
                             "safe when polarity is already known good.")
+    floor = ap.add_argument_group("floor calibration (--calibrate-floor)")
+    floor.add_argument("--turns", type=int, default=5,
+                       help="hand turns per wheel when counting ticks (default 5)")
+    floor.add_argument("--target-mm", type=float, default=1000.0,
+                       help="roughly how far to roll (default 1000)")
+    floor.add_argument("--roll-duty", type=int, default=250,
+                       help="duty for the creep rolls. Slow, but it must clear "
+                            "the LOADED deadband (default 250)")
+    floor.add_argument("--roll-pulse-ms", type=int, default=1000,
+                       help="each creep pulse; short so the rover stops close "
+                            "to the target (default 1000)")
+    floor.add_argument("--roll-max-pulses", type=int, default=30,
+                       help="give up after this many pulses (default 30)")
+    floor.add_argument("--veer-tolerance", type=float, default=0.05,
+                       help="left/right tick mismatch that flags a crooked run "
+                            "(default 0.05 = 5%%)")
     args = ap.parse_args()
 
     port = find_port(args.port)

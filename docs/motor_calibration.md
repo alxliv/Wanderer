@@ -229,10 +229,87 @@ mid-wiggle revocation, clamping, self-termination, ESTOP-always-honored, and
 that cockpit verbs such as `drive` and `arm` are *not* reachable through the
 backdoor.
 
-## 9. What this does not calibrate
+## 9. Floor calibration — ticks per metre
 
-`DEFAULT_TICKS_PER_METER` (a placeholder 10000.0f) and `DEFAULT_MAX_SPEED_MM_S`
-(600, marked "calibrate") both need a **known-distance roll on the floor**, not
-a raised bench, so they are deliberately out of scope here. `TRACK_WIDTH_M`
-likewise needs a measured rotation. Those come after the wheels are known to
-turn correctly.
+```sh
+python tools/backdoor.py --calibrate-floor
+```
+
+**No arguments.** It asks for everything it needs. Bring a tape measure and a
+clear straight metre of hard floor.
+
+This turns encoder ticks into a physical length. Until it is done,
+`DEFAULT_TICKS_PER_METER` is a placeholder `10000.0f` and every distance and
+velocity the cockpit reports is scaled by a guess.
+
+Four guided steps:
+
+| Step | Rover | What you do |
+|---|---|---|
+| 1. Rotation direction | raised | Watch each wheel run, answer yes/no |
+| 2. Ticks per turn | raised | Turn each wheel 5 times by hand |
+| 3. Wheel diameter | raised | Measure across the wheel, type it in |
+| 4. The roll | **on the floor** | Type `s`, let it drive, measure how far |
+
+### Step 2 — ticks per turn
+
+The tool zeroes the counter, tells you to turn that wheel five full turns by
+hand, reads the counter back, and shows you both the raw tick count and the
+ticks-per-revolution. You confirm the number looks right, or redo the wheel.
+
+Five turns rather than one because your error in judging "back to the mark"
+divides by the count. It also warns if the count is zero (encoder not read),
+negative (turned the wrong way), or if the *other* wheel's counter moved.
+
+Measuring at the wheel makes this independent of gearbox ratio and encoder
+PPR — whatever sits between motor and rim, the composite is what gets counted.
+
+### Step 3 — diameter
+
+Measured across the wheel through the centre. Combined with step 2 this gives
+a rough ticks-per-metre: `ticks_per_rev / (π · D)`. It only decides how far to
+roll. The real number comes from your tape.
+
+### Step 4 — the roll
+
+The tool tells you exactly what is about to happen, then waits for you to type
+**`s`** — not a bare Enter, since the next thing that happens is the rover
+driving off.
+
+It creeps forward at 250‰ in short pulses, printing distance and speed, stops
+itself after about a metre, and asks you for the actual distance travelled.
+Measure to the *same* reference point on the rover you started from.
+
+`ticks/m = mean ticks ÷ your measured distance`. Overshoot past the internal
+target does not matter — the tape is what counts.
+
+If the first pulse produces no ticks, the duty is below the *loaded* deadband:
+on the floor the wheels carry the chassis, so breakaway is higher than the
+raised-bench figure in §6. Raise `--roll-duty`.
+
+### Checks it performs
+
+- left vs right ticks/rev more than 2% apart — recount
+- left vs right ticks during the roll more than 5% apart — it did not run
+  straight, so one distance describes neither wheel's path
+- implied rolling diameter, inverted back from the result and compared against
+  the wheel you measured
+
+Paste the result into `config.h` and reflash.
+
+### Testing without hardware
+
+```sh
+python tools/test_floor_sim.py
+```
+
+Walks the same prompts with a scripted operator against a simulated rover,
+including the hand-turning step, and checks the arithmetic.
+
+## 10. Still not calibrated
+
+- **`DEFAULT_MAX_SPEED_MM_S`** (600) — needs a sustained run near full duty,
+  which needs more floor than a USB cable reaches. Waits for the Pi5 to carry
+  the tool, driven over ssh, untethered.
+- **`TRACK_WIDTH_M`** (0.30f) — needs a measured *rotation* rather than a
+  straight roll. Its own procedure, not yet automated.
