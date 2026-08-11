@@ -15,6 +15,14 @@ static backdoor_enc_reset_fn s_encReset;
 static uint8_t               s_fwMajor, s_fwMinor;
 static LineAssembler         s_asm;
 
+// Compiled-in calibration constants, reported by `cfg`. Defaults are the
+// identity/zero case so firmware that never calls backdoor_set_config still
+// answers truthfully rather than inventing numbers.
+static int8_t  s_encLeftSign = 1, s_encRightSign = 1;
+static int8_t  s_motLeftSign = 1, s_motRightSign = 1;
+static float   s_ticksPerMeter;
+static int16_t s_maxSpeedMmS;
+
 // Outstanding wiggle. s_wiggleUntilUs is meaningless unless s_wiggling.
 static bool     s_wiggling;
 static uint64_t s_wiggleUntilUs;
@@ -66,6 +74,18 @@ void backdoor_set_encoder_provider(backdoor_enc_fn fn, backdoor_enc_reset_fn res
 {
     s_enc = fn;
     s_encReset = reset;
+}
+
+void backdoor_set_config(int8_t enc_left_sign, int8_t enc_right_sign,
+                         int8_t motor_left_sign, int8_t motor_right_sign,
+                         float ticks_per_meter, int16_t max_speed_mm_s)
+{
+    s_encLeftSign = enc_left_sign;
+    s_encRightSign = enc_right_sign;
+    s_motLeftSign = motor_left_sign;
+    s_motRightSign = motor_right_sign;
+    s_ticksPerMeter = ticks_per_meter;
+    s_maxSpeedMmS = max_speed_mm_s;
 }
 
 bool backdoor_wiggle_active(void) { return s_wiggling; }
@@ -198,6 +218,22 @@ static void do_enc(char *tokens[], int n)
     reply_ok("enc", fields);
 }
 
+// The constants a bench tool needs to interpret what it just measured. In
+// particular enc_left_sign / enc_right_sign: `enc` reports counts with these
+// already applied, so without them a tool cannot distinguish "the configured
+// sign is correct" from "the sign should be +1".
+static void do_cfg(void)
+{
+    char fields[160];
+    snprintf(fields, sizeof fields,
+             "enc_left_sign=%d enc_right_sign=%d motor_left_sign=%d "
+             "motor_right_sign=%d ticks_per_m=%.1f max_speed_mm_s=%d",
+             (int)s_encLeftSign, (int)s_encRightSign,
+             (int)s_motLeftSign, (int)s_motRightSign,
+             (double)s_ticksPerMeter, (int)s_maxSpeedMmS);
+    reply_ok("cfg", fields);
+}
+
 static void do_ver(void)
 {
     char fields[80];
@@ -210,7 +246,7 @@ static void do_ver(void)
 
 static void do_help(void)
 {
-    emit("*backdoor verbs: dev on|off, wiggle <l> <r> <ms>, enc [reset],");
+    emit("*backdoor verbs: dev on|off, wiggle <l> <r> <ms>, enc [reset], cfg,");
     emit("*  estop, safe, clear_fault, ver, help");
     emit("*wiggle needs dev on, which needs SAFE + no live cockpit commander");
     emit("*estop latches FAULT; clear_fault lifts it, then safe/dev on works again");
@@ -251,6 +287,8 @@ static void dispatch(char *line, uint64_t now_us)
         do_wiggle(tokens, n, now_us);
     } else if (codec_token_eq(verb, "enc")) {
         do_enc(tokens, n);
+    } else if (codec_token_eq(verb, "cfg")) {
+        do_cfg();
     } else if (codec_token_eq(verb, "ver")) {
         do_ver();
     } else if (codec_token_eq(verb, "help")) {

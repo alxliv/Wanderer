@@ -14,7 +14,13 @@ import sys, types, importlib.util
 
 # --- ground truth we expect the tool to discover ---------------------------
 TRUE = {"left_fwd": 120, "left_rev": 140, "right_fwd": 180, "right_rev": 190}
-LEFT_SIGN, RIGHT_SIGN = -1, 1     # left encoder counts backwards
+# What config.h holds. The sim reports these via `cfg` AND applies them to its
+# counts, exactly as the firmware does -- so with correct wiring a forward
+# command raises the reported count whatever the sign is. LEFT_AGREES/
+# RIGHT_AGREES say whether the configured sign actually matches the hardware.
+LEFT_SIGN, RIGHT_SIGN = -1, 1
+LEFT_AGREES, RIGHT_AGREES = True, False   # right sign is WRONG and must flip
+MOT_LEFT_SIGN, MOT_RIGHT_SIGN = 1, -1     # what config.h holds for the motors
 TICKS_PER_MS_AT_FULL = 4.0
 
 
@@ -51,6 +57,10 @@ class FakeSerial:
         elif verb == "dev":
             self.dev = (tok[1].lower() == "on")
             self._reply("=ok dev")
+        elif verb == "cfg":
+            self._reply(f"=ok cfg enc_left_sign={LEFT_SIGN} enc_right_sign={RIGHT_SIGN} "
+                        f"motor_left_sign={MOT_LEFT_SIGN} motor_right_sign={MOT_RIGHT_SIGN} "
+                        f"ticks_per_m=10000.0 max_speed_mm_s=600")
         elif verb == "enc":
             self._reply(f"=ok enc left={self.lt} right={self.rt}")
         elif verb == "help":
@@ -76,9 +86,9 @@ class FakeSerial:
         db_l = TRUE["left_fwd"] if l > 0 else TRUE["left_rev"]
         db_r = TRUE["right_fwd"] if r > 0 else TRUE["right_rev"]
         if abs(l) >= db_l:
-            self.lt += int(LEFT_SIGN * (l / 600) * TICKS_PER_MS_AT_FULL * ms)
+            self.lt += int((1 if LEFT_AGREES else -1) * (l / 600) * TICKS_PER_MS_AT_FULL * ms)
         if abs(r) >= db_r:
-            self.rt += int(RIGHT_SIGN * (r / 600) * TICKS_PER_MS_AT_FULL * ms)
+            self.rt += int((1 if RIGHT_AGREES else -1) * (r / 600) * TICKS_PER_MS_AT_FULL * ms)
 
 
 # --- load the tool with serial stubbed and sleeps neutered -----------------
@@ -108,6 +118,7 @@ class Args:
     # banner, the same way it does against real firmware.
     start, max, step, fine = 20, None, 20, 5
     pulse_ms, settle, min_ticks, wiring_duty = 400, 0.0, 15, 400
+    rotation_ms, skip_rotation_check = 3000, False
 
 
 args = Args()
@@ -115,6 +126,22 @@ bd = bdmod.Backdoor("SIM")
 print(f"airframe: {bd.ver()}")
 bdmod.apply_limits(bd, args)
 bd.dev(True)
+
+# ---- phase 0: scripted operator answers -----------------------------------
+# The rotation check is the one step no machine can perform, so the test
+# drives it the only way it can: by scripting the human.
+answers: list[str] = []
+bdmod.input = lambda prompt="": answers.pop(0)
+
+print("\n--- phase 0, both wheels confirmed good ---")
+answers[:] = ["yes", "yes"]
+res0 = bdmod.Results()
+ok = bdmod.check_rotation(bd, args, res0)
+
+print("\n--- phase 0, RIGHT wheel reversed ---")
+answers[:] = ["yes", "n"]
+res_bad = bdmod.Results()
+bad_ok = bdmod.check_rotation(bd, args, res_bad)
 
 res = bdmod.Results()
 bdmod.check_wiring(bd, args, res)
@@ -140,8 +167,21 @@ check(len(bd.notes) == 2 and bd.notes[0].startswith("*backdoor verbs"),
 check(bd.max_duty == 600, f"max_duty read from the banner: {bd.max_duty}")
 check(bd.max_ms == 3000, f"max_ms read from the banner: {bd.max_ms}")
 check(args.max == 600, f"sweep ceiling taken from the board: {args.max}")
-check(res.left_sign == LEFT_SIGN, f"left sign {res.left_sign} == {LEFT_SIGN}")
-check(res.right_sign == RIGHT_SIGN, f"right sign {res.right_sign} == {RIGHT_SIGN}")
+check(ok is True, "phase 0 passes when both wheels are confirmed forward")
+check(res0.left_rotation_ok and res0.right_rotation_ok, "both wheel verdicts recorded")
+check(bad_ok is False, "phase 0 ABORTS the run when a wheel is reversed")
+check(res_bad.right_rotation_ok is False, "reversed wheel recorded as such")
+check(res_bad.cfg_motor_right_sign == MOT_RIGHT_SIGN,
+      f"read configured motor signs from cfg: {res_bad.cfg_motor_right_sign}")
+check(res.cfg_left_sign == LEFT_SIGN and res.cfg_right_sign == RIGHT_SIGN,
+      f"read configured signs from cfg: {res.cfg_left_sign}, {res.cfg_right_sign}")
+check(res.left_agrees is LEFT_AGREES, f"left agreement {res.left_agrees} == {LEFT_AGREES}")
+check(res.right_agrees is RIGHT_AGREES, f"right agreement {res.right_agrees} == {RIGHT_AGREES}")
+# The whole point: a correct sign must be LEFT ALONE, a wrong one NEGATED.
+check(res.left_sign == LEFT_SIGN,
+      f"correct left sign preserved: {res.left_sign} == {LEFT_SIGN} (not flipped)")
+check(res.right_sign == -RIGHT_SIGN,
+      f"wrong right sign negated: {res.right_sign} == {-RIGHT_SIGN}")
 check(not res.swapped, "wiring not reported swapped")
 check(not res.crosstalk, "no spurious crosstalk")
 for k, truth in TRUE.items():

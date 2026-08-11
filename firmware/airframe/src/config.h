@@ -20,11 +20,28 @@
 #define M2_PWM_PIN        19    /* PWM2 (speed)      */
 #define M2_DIR_PIN        20    /* DIR2 (direction)  */
 
+/* ---- Motor polarity ----
+ * A POSITIVE command must drive the vehicle toward bearing 0 (forward). See
+ * docs/Wanderer_Command_Architecture.md section 2a for the body frame. If a
+ * wheel spins the wrong way, set its sign to -1 here rather than re-wiring;
+ * `python tools/backdoor.py --calibrate` asks about each wheel in turn and
+ * tells you which one to change.
+ */
+#define MOTOR_LEFT_SIGN    1
+#define MOTOR_RIGHT_SIGN   1
+
 /* ---- Quadrature encoders (3.3 V logic; decoded via PIO) ----
  * Each encoder uses two CONSECUTIVE GPIO (A on base pin, B on base+1) so a
- * single PIO state machine can read both channels. The sign values normalize
- * counts so a physically forward wheel should report positive ticks. Change a
- * sign to -1 if the motor hardware test reports negative ticks while forward.
+ * single PIO state machine can read both channels.
+ *
+ * The signs normalize counts so that motion toward bearing 0 (straight ahead
+ * from the driver seat -- docs/Wanderer_Command_Architecture.md section 2a)
+ * counts UP. encoders_sample() applies them, so every count above this line
+ * is already corrected; a bench tool reading rising counts has learned that
+ * the sign here is right, NOT that the sign is +1.
+ *
+ * Verified by `python tools/backdoor.py --calibrate`, which names the one to
+ * change if either is inverted.
  */
 #define ENC_LEFT_PIN_BASE  10    /* left:  GP10 (A), GP11 (B) */
 #define ENC_RIGHT_PIN_BASE 12    /* right: GP12 (A), GP13 (B) */

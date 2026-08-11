@@ -65,8 +65,18 @@ void motors_init(void) {
 }
 
 void motors_set(int16_t left_command, int16_t right_command, uint16_t max_pwm) {
-    apply_output(&left_motor, motor_output_from_command(left_command, max_pwm));
-    apply_output(&right_motor, motor_output_from_command(right_command, max_pwm));
+    /*
+     * Polarity is applied HERE, at the last step before the pins, so that
+     * every caller above -- tactical targets, the bench backdoor, any future
+     * controller -- speaks one language: positive drives the vehicle toward
+     * bearing 0. Nothing upstream needs to know how the motors are wired.
+     */
+    apply_output(&left_motor,
+                 motor_output_from_command((int16_t)(MOTOR_LEFT_SIGN * left_command),
+                                           max_pwm));
+    apply_output(&right_motor,
+                 motor_output_from_command((int16_t)(MOTOR_RIGHT_SIGN * right_command),
+                                           max_pwm));
 }
 
 void motors_stop(void) {

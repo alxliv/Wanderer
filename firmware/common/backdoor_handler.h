@@ -19,6 +19,7 @@
 //   dev on | dev off            (the gate itself -- authority, not operation)
 //   wiggle <l> <r> <ms>         dev-time diagnostic (raw bench wiggle)
 //   enc [reset]                 dev-time diagnostic (read a counter)
+//   cfg                         dev-time diagnostic (read a register)
 //   ver                         dev-time diagnostic (identify)
 //   help                        dev-time diagnostic (list the above)
 //
@@ -67,6 +68,21 @@ typedef void (*backdoor_enc_reset_fn)(void);
 void backdoor_init(backdoor_sink sink, uint8_t fw_major, uint8_t fw_minor);
 void backdoor_set_motor_sink(backdoor_motor_fn fn);
 void backdoor_set_encoder_provider(backdoor_enc_fn fn, backdoor_enc_reset_fn reset);
+
+// Publish the compiled-in calibration constants for the `cfg` verb.
+//
+// This exists because encoders_sample() returns SIGN-CORRECTED counts: the
+// ticks a bench tool observes have already been multiplied by ENC_*_SIGN. A
+// tool that watches a forward command produce rising ticks has therefore
+// learned "the configured sign is right", NOT "the sign is +1" -- and cannot
+// tell the two apart without knowing what the sign currently is. Reporting
+// the constants turns an ambiguous observation into a verdict.
+//
+// Passed in rather than included for the same reason cockpit_init's limits
+// are: this module is shared, airframe/src/config.h is target-private.
+void backdoor_set_config(int8_t enc_left_sign, int8_t enc_right_sign,
+                         int8_t motor_left_sign, int8_t motor_right_sign,
+                         float ticks_per_meter, int16_t max_speed_mm_s);
 
 // Pump one received byte; dispatches when a full line has arrived.
 void backdoor_feed(char c, uint64_t now_us);

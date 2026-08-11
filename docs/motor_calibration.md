@@ -24,6 +24,7 @@ through the cockpit (Pi5 / UART), full stop.
 | `dev on` / `dev off` | the authority gate | Acquire / release the motion lease. |
 | `wiggle <l> <r> <ms>` | dev diagnostic | Raw per-mille duty, both wheels, self-terminating. |
 | `enc` / `enc reset` | dev diagnostic | Read / zero the raw encoder counts. |
+| `cfg` | dev diagnostic | Report the compiled-in `ENC_*_SIGN`, `MOTOR_*_SIGN`, ticks/m, max speed. |
 | `ver` | dev diagnostic | Firmware version and the bench rails. |
 | `help` | dev diagnostic | List the above. |
 
@@ -106,10 +107,34 @@ python tools/backdoor.py --calibrate
 
 The port is autodetected by Raspberry Pi VID (`0x2E8A`); override with
 `--port COM5`. The tool confirms the chassis is raised, acquires the lease,
-and runs two phases:
+and runs three phases:
+
+**Phase 0 — wheel rotation direction (the operator answers).** Runs the left
+wheel alone for 3 s, stops, and asks whether that rotation would move the
+vehicle **forward, toward bearing 0** (see architecture 2a for the body
+frame). Then the same for the right wheel.
+
+This step cannot be automated and it cannot be skipped. No sensor on the robot
+knows which way the *vehicle* would go: an encoder counting up says the wheel
+is turning, not that the chassis would advance. An operator's eye is the only
+instrument available, and every later number depends on the answer -- the
+deadband sweep, the encoder-sign verdict and the eventual ticks-per-metre roll
+all assume a positive command drives toward bearing 0.
+
+A "no" **aborts the run before anything is measured** and names the constant to
+change (`MOTOR_LEFT_SIGN` / `MOTOR_RIGHT_SIGN` in `config.h`), with the value
+to write. Measuring a reversed wheel produces numbers that look entirely
+plausible and mean nothing, so the tool refuses to produce them.
+
+`--rotation-ms` changes the run length; `--skip-rotation-check` bypasses the
+phase entirely and is only safe once polarity is known good.
 
 **Phase 1 — encoder wiring and direction.** Drives each wheel alone at 400‰ and
-watches which encoder responds and in which direction. Detects three distinct
+watches which encoder responds and in which direction. It first reads `cfg` for
+the configured `ENC_*_SIGN`, because `enc` counts are already sign-corrected --
+without that, a rising count cannot be told apart from a sign that happens to be
+`+1`, and the tool would cheerfully suggest inverting a working encoder. Detects
+three distinct
 faults that are easy to confuse on the bench: a swapped encoder pair (one wheel
 moves the *other* counter), a dead channel, and chassis movement (both counters
 respond to a single-wheel command, meaning the robot is not properly
@@ -121,15 +146,24 @@ downward in fine steps. Every pulse starts from a **stopped** wheel, because
 breakaway is a static-friction threshold — measuring from a rolling start reads
 low.
 
-Output ends with a config.h-ready block:
+Output ends with a config.h-ready block. Sign lines appear **only when a sign
+must change** -- a correct one is reported as "leave it alone" rather than
+printed as a define, so it cannot be pasted in the wrong sense:
 
 ```
-Suggested config.h additions:
-  #define ENC_LEFT_SIGN      -1
-  #define ENC_RIGHT_SIGN     +1
+Suggested config.h changes:
+  /* Both ENC_*_SIGN are already correct -- do not change them. */
   #define MOTOR_DEADBAND_LEFT  120
   #define MOTOR_DEADBAND_RIGHT 180
 ```
+
+Deadbands are reported for both directions and both wheels, with the L/R skew
+called out separately for forward and reverse, since a rover can be nearly
+symmetric one way and badly skewed the other.
+
+**The numbers are UNLOADED.** Wheels raised, carrying nothing: on the floor,
+under the chassis' weight, real breakaway is higher. Treat them as a lower
+bound and a wiring verdict, not as final feed-forward constants.
 
 Useful knobs: `--step` / `--fine` (sweep resolution), `--pulse-ms`,
 `--min-ticks` (what counts as movement), `--verbose` (echo the wire traffic).

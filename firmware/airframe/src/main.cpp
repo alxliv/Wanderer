@@ -126,6 +126,9 @@ int main(void)
     backdoor_init(backdoor_line_out, FW_VERSION_MAJOR, FW_VERSION_MINOR);
     backdoor_set_motor_sink(backdoor_motor_out);
     backdoor_set_encoder_provider(backdoor_encoders, encoders_reset);
+    backdoor_set_config(ENC_LEFT_SIGN, ENC_RIGHT_SIGN,
+                        MOTOR_LEFT_SIGN, MOTOR_RIGHT_SIGN,
+                        DEFAULT_TICKS_PER_METER, DEFAULT_MAX_SPEED_MM_S);
 
     printf("*airframe fw %u.%u cockpit on pico2 uart0 @%u\r\n",
            FW_VERSION_MAJOR, FW_VERSION_MINOR, (unsigned)PICO2_UART_BAUD);

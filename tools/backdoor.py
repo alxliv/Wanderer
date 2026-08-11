@@ -8,7 +8,9 @@ USB CDC. Two modes:
     python tools/backdoor.py                    # interactive console
     python tools/backdoor.py --calibrate        # automatic calibration run
 
-The calibration run measures, without the operator touching anything:
+The calibration run begins by asking the operator to confirm each wheel's
+rotation direction -- nothing on the robot can check that -- and then measures,
+without further input:
 
   * encoder wiring    -- which encoder belongs to which wheel, and whether
                          forward motion counts up (ENC_LEFT_SIGN / ENC_RIGHT_SIGN)
@@ -157,6 +159,38 @@ class Backdoor:
             self.dev_active = on
         return reply
 
+    def cfg_motor_signs(self) -> tuple[int | None, int | None]:
+        """The MOTOR_*_SIGN values the running firmware compiled in.
+
+        Same reasoning as cfg_enc_signs: motors_set() applies these before the
+        pins, so "the wheel turned the wrong way" is a verdict on what is
+        configured, not a raw polarity.
+        """
+        reply = self.request("cfg")
+        if not reply.startswith("=ok"):
+            return None, None
+        fields = reply_fields(reply)
+        try:
+            return int(fields["motor_left_sign"]), int(fields["motor_right_sign"])
+        except (KeyError, ValueError):
+            return None, None
+
+    def cfg_enc_signs(self) -> tuple[int | None, int | None]:
+        """The ENC_*_SIGN values the running firmware compiled in.
+
+        Needed because `enc` counts are already sign-corrected: without these
+        an observation cannot be turned into a config.h value. Returns
+        (None, None) on firmware predating the `cfg` verb.
+        """
+        reply = self.request("cfg")
+        if not reply.startswith("=ok"):
+            return None, None
+        fields = reply_fields(reply)
+        try:
+            return int(fields["enc_left_sign"]), int(fields["enc_right_sign"])
+        except (KeyError, ValueError):
+            return None, None
+
     def estop(self) -> str:
         return self.request("estop")
 
@@ -271,18 +305,144 @@ def sweep_deadband(bd: Backdoor, wheel: str, sign: int, args) -> tuple[int | Non
 
 @dataclass
 class Results:
-    left_sign: int | None = None
-    right_sign: int | None = None
+    # `agrees` is the OBSERVATION: did a forward command make the reported
+    # count rise? It is not the sign constant. `enc` reports counts with
+    # ENC_*_SIGN already applied by the firmware, so a rising count means
+    # "whatever is configured is correct", and a falling one means "flip it".
+    left_agrees: bool | None = None
+    right_agrees: bool | None = None
+    # What is configured right now, read from `cfg`. None on firmware too old
+    # to report it, in which case no new value can be computed -- only the
+    # verdict, which is the honest thing to print.
+    cfg_left_sign: int | None = None
+    cfg_right_sign: int | None = None
+    # Phase 0: the operator's verdict on each wheel's rotation direction.
+    left_rotation_ok: bool | None = None
+    right_rotation_ok: bool | None = None
+    cfg_motor_left_sign: int | None = None
+    cfg_motor_right_sign: int | None = None
     swapped: bool = False
     crosstalk: list[str] = field(default_factory=list)
     deadband: dict[str, int | None] = field(default_factory=dict)
+
+    def _new_sign(self, agrees: bool | None, configured: int | None) -> int | None:
+        """The value config.h should hold: keep if the observation agrees,
+        negate if it does not. Undeterminable without the configured value."""
+        if agrees is None or configured is None:
+            return None
+        return configured if agrees else -configured
+
+    @property
+    def left_sign(self) -> int | None:
+        return self._new_sign(self.left_agrees, self.cfg_left_sign)
+
+    @property
+    def right_sign(self) -> int | None:
+        return self._new_sign(self.right_agrees, self.cfg_right_sign)
+
+
+def ask_yes_no(question: str) -> bool | None:
+    """Yes/no with no default. Returns None if the operator gives up.
+
+    Deliberately refuses to accept a bare Enter: the answer is the ground
+    truth every later number rests on, and a distracted Enter must not be
+    silently read as agreement.
+    """
+    for _ in range(5):
+        try:
+            answer = input(f"  {question} [yes/no]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if answer in ("y", "yes"):
+            return True
+        if answer in ("n", "no"):
+            return False
+        print("  Please answer yes or no.")
+    return None
+
+
+def check_rotation(bd: Backdoor, args, res: Results) -> bool:
+    """Phase 0. Turn each wheel alone and have the operator confirm it would
+    push the vehicle toward bearing 0.
+
+    This has to come first and it has to be a human answer. Every later phase
+    assumes a positive command means forward: the deadband sweep, the encoder
+    sign verdict and the eventual ticks-per-metre roll are all measured
+    against that assumption. Nothing on the robot can check it -- an encoder
+    counting up tells you the wheel is turning, not which way the vehicle
+    would go -- so an operator's eye is the only available instrument.
+
+    Returns False if a wheel is reversed or the operator bails, in which case
+    nothing further should be measured.
+    """
+    print("\n[0/3] wheel rotation direction (operator confirms)")
+    print("  Body frame: bearing 0 = straight ahead from the driver seat.")
+    print("  Watch ONE wheel at a time and answer for that wheel only.")
+
+    res.cfg_motor_left_sign, res.cfg_motor_right_sign = bd.cfg_motor_signs()
+
+    duty = min(args.max, max(args.wiring_duty, args.start))
+    ms = min(args.rotation_ms, bd.max_ms or args.rotation_ms)
+
+    for wheel in ("left", "right"):
+        print(f"\n  Running the {wheel.upper()} wheel forward for {ms/1000:.0f}s"
+              f" at {duty} permille...")
+        left = duty if wheel == "left" else 0
+        right = duty if wheel == "right" else 0
+        bd.wiggle(left, right, ms)
+        bd.await_event("!wiggle_done", timeout=ms / 1000.0 + 4.0)
+        print(f"  {wheel.upper()} wheel stopped.")
+
+        answer = ask_yes_no(
+            f"Would that {wheel} wheel rotation move the vehicle FORWARD (bearing 0)?")
+        if answer is None:
+            print("\n  No answer given -- stopping. Nothing was measured.")
+            return False
+        setattr(res, f"{wheel}_rotation_ok", answer)
+        if answer:
+            print(f"  OK: {wheel} wheel drives forward on a positive command.")
+        else:
+            print(f"  Noted: {wheel} wheel is REVERSED.")
+
+    if res.left_rotation_ok and res.right_rotation_ok:
+        return True
+
+    print("\n  !! Stopping before any measurement.")
+    print("     A reversed wheel invalidates everything downstream: the deadband")
+    print("     sweep, the encoder-sign verdict and ticks-per-metre all assume a")
+    print("     positive command drives the vehicle toward bearing 0.")
+    print("\n  Fix in config.h, then reflash and rerun:")
+    for wheel, ok, configured in (
+            ("LEFT", res.left_rotation_ok, res.cfg_motor_left_sign),
+            ("RIGHT", res.right_rotation_ok, res.cfg_motor_right_sign)):
+        if ok:
+            continue
+        if configured is None:
+            print(f"     MOTOR_{wheel}_SIGN -- negate it"
+                  f" (firmware did not report its value)")
+        else:
+            print(f"     #define MOTOR_{wheel}_SIGN   {-configured:+d}"
+                  f"   /* was {configured:+d} */")
+    print("\n     Swapping the motor leads at the MDD10A works too, but the sign")
+    print("     constant keeps the wiring and the code telling the same story.")
+    return False
 
 
 def check_wiring(bd: Backdoor, args, res: Results) -> None:
     """Drive each wheel alone at a duty well above any plausible deadband and
     see which encoder responds, and in which direction."""
-    print("\n[1/2] encoder wiring and direction")
+    print("\n[1/3] encoder wiring and direction")
     probe = min(args.max, max(args.wiring_duty, args.start))
+
+    # Learn what the firmware is currently applying, so an observation can be
+    # turned into a verdict rather than a bare sign.
+    res.cfg_left_sign, res.cfg_right_sign = bd.cfg_enc_signs()
+    if res.cfg_left_sign is None:
+        print("    (firmware does not report `cfg`; sign verdicts only, no values)")
+    else:
+        print(f"    configured now: ENC_LEFT_SIGN {res.cfg_left_sign:+d}, "
+              f"ENC_RIGHT_SIGN {res.cfg_right_sign:+d}")
 
     left_probe = pulse(bd, "left", probe, args.pulse_ms, args.settle)
     print(f"    left  wheel @ +{probe}  ->  L{left_probe.left_delta:>+7}  R{left_probe.right_delta:>+7}")
@@ -315,12 +475,13 @@ def check_wiring(bd: Backdoor, args, res: Results) -> None:
     if not right_ok:
         print(f"    !! right wheel: no encoder response at {probe}. Same causes.")
 
-    # A positive command must produce positive ticks. If it does not, the
-    # existing sign constant is inverted relative to the hardware.
+    # A forward command must make the REPORTED count rise. The count is
+    # already sign-corrected in firmware, so this records agreement with the
+    # configured sign, not the sign itself -- see Results.
     if left_ok:
-        res.left_sign = 1 if left_probe.left_delta > 0 else -1
+        res.left_agrees = left_probe.left_delta > 0
     if right_ok:
-        res.right_sign = 1 if right_probe.right_delta > 0 else -1
+        res.right_agrees = right_probe.right_delta > 0
 
     # Crosstalk: both encoders moving on a single-wheel command usually means
     # the chassis is not restrained and the whole robot is shifting.
@@ -331,7 +492,7 @@ def check_wiring(bd: Backdoor, args, res: Results) -> None:
 
 
 def measure_deadbands(bd: Backdoor, args, res: Results) -> None:
-    print("\n[2/2] deadband sweep (breakaway duty, from rest)")
+    print("\n[2/3] deadband sweep (breakaway duty, from rest)")
     for wheel in ("left", "right"):
         for label, sign in (("fwd", 1), ("rev", -1)):
             key = f"{wheel}_{label}"
@@ -349,16 +510,31 @@ def report(res: Results, args) -> None:
     print("CALIBRATION RESULT")
     print("=" * 68)
 
+    print("\nWheel rotation (operator-confirmed):")
+    for name, ok in (("left", res.left_rotation_ok), ("right", res.right_rotation_ok)):
+        if ok is None:
+            print(f"  {name:<8} not checked")
+        else:
+            print(f"  {name:<8} {'drives forward on a positive command' if ok else 'REVERSED'}")
+
     if res.swapped:
         print("\nEncoders are cross-wired. Fix the wiring, then rerun; the deadband")
         print("numbers below (if any) cannot be trusted until it is corrected.")
 
-    print("\nEncoder direction:")
-    for name, sign in (("ENC_LEFT_SIGN", res.left_sign), ("ENC_RIGHT_SIGN", res.right_sign)):
-        if sign is None:
+    print("\nEncoder direction (counts are already sign-corrected in firmware,")
+    print("so this is a verdict on what is configured, not a raw measurement):")
+    for name, agrees, configured, new in (
+            ("ENC_LEFT_SIGN", res.left_agrees, res.cfg_left_sign, res.left_sign),
+            ("ENC_RIGHT_SIGN", res.right_agrees, res.cfg_right_sign, res.right_sign)):
+        if agrees is None:
             print(f"  {name:<16} undetermined (wheel never moved)")
+        elif configured is None:
+            verdict = "correct as configured" if agrees else "INVERTED -- flip it"
+            print(f"  {name:<16} {verdict} (firmware did not report its value)")
+        elif agrees:
+            print(f"  {name:<16} {configured:+d}  correct as configured -- leave it alone")
         else:
-            print(f"  {name:<16} {sign:+d}")
+            print(f"  {name:<16} {configured:+d} -> {new:+d}  INVERTED, forward counts down")
 
     if res.crosstalk:
         print("\nWarning -- encoder crosstalk observed:")
@@ -376,28 +552,58 @@ def report(res: Results, args) -> None:
         print(f"  {wheel:<8}{fs:>10}{rs:>10}")
 
     known = [v for v in res.deadband.values() if v is not None]
-    lf, rf = res.deadband.get("left_fwd"), res.deadband.get("right_fwd")
-    if lf is not None and rf is not None:
-        skew = abs(lf - rf)
-        stronger = "left" if lf < rf else "right"
-        print(f"\nL/R asymmetry (forward): {skew} permille"
-              f" -- the {stronger} wheel breaks away first.")
-        if skew >= args.step:
-            print("  At low speed a straight-line command will veer toward the")
-            print(f"  {'right' if stronger == 'left' else 'left'} until both wheels are turning.")
+
+    # Report BOTH directions: a rover can be near-symmetric going forward and
+    # badly skewed in reverse, and reversing is exactly when a stalled wheel
+    # is least expected.
+    for label, direction in (("forward", "fwd"), ("reverse", "rev")):
+        l, r = res.deadband.get(f"left_{direction}"), res.deadband.get(f"right_{direction}")
+        if l is None or r is None:
+            continue
+        skew = abs(l - r)
+        first = "left" if l < r else "right"
+        drift = "right" if first == "left" else "left"
+        print(f"\nL/R asymmetry ({label}): {skew} permille"
+              f" -- the {first} wheel breaks away first.")
+        if skew >= args.fine:
+            print(f"  Below {max(l, r)} permille a straight-line command in {label}")
+            print(f"  turns the robot toward the {drift}: one wheel spins, one sits still.")
+
+    # Per-wheel directional asymmetry: a wheel much stiffer one way than the
+    # other points at a mechanical cause (bearing preload, gearbox backlash,
+    # brush wear) rather than at anything in the firmware.
+    for wheel in ("left", "right"):
+        f, r = res.deadband.get(f"{wheel}_fwd"), res.deadband.get(f"{wheel}_rev")
+        if f is not None and r is not None and abs(f - r) >= 2 * args.fine:
+            stiff = "reverse" if r > f else "forward"
+            print(f"\nThe {wheel} wheel is markedly stiffer in {stiff}"
+                  f" ({f} fwd vs {r} rev).")
+            print("  A directional difference this large is mechanical, not electrical:")
+            print("  check bearing preload, gearbox drag and cable routing on that side.")
 
     if known:
         worst = max(known)
-        print("\nSuggested config.h additions:")
-        print(f"  /* Measured {time.strftime('%Y-%m-%d')} with tools/backdoor.py. */")
-        if res.left_sign is not None:
-            print(f"  #define ENC_LEFT_SIGN      {res.left_sign:+d}")
-        if res.right_sign is not None:
-            print(f"  #define ENC_RIGHT_SIGN     {res.right_sign:+d}")
+        print("\nSuggested config.h changes:")
+        print(f"  /* Measured {time.strftime('%Y-%m-%d')} with tools/backdoor.py, wheels")
+        print("     raised and UNLOADED -- see the caveat below. */")
+        # Only emit a sign line when it actually needs to CHANGE. Printing a
+        # value that is already correct invites pasting it in the wrong sense
+        # and inverting a working configuration.
+        for name, agrees, new in (("ENC_LEFT_SIGN", res.left_agrees, res.left_sign),
+                                  ("ENC_RIGHT_SIGN", res.right_agrees, res.right_sign)):
+            if agrees is False and new is not None:
+                print(f"  #define {name:<18} {new:+d}   /* was inverted */")
+        if res.left_agrees and res.right_agrees:
+            print("  /* Both ENC_*_SIGN are already correct -- do not change them. */")
         print(f"  #define MOTOR_DEADBAND_LEFT  {res.deadband.get('left_fwd') or 0}")
         print(f"  #define MOTOR_DEADBAND_RIGHT {res.deadband.get('right_fwd') or 0}")
         print(f"  /* Lowest duty at which BOTH wheels reliably turn: {worst}. Commands")
         print(f"     below this move nothing; feed-forward past it or refuse them. */")
+
+    print("\nCaveat -- these are UNLOADED numbers. The wheels were raised and")
+    print("carrying nothing, so on the floor, under the chassis' own weight, the")
+    print("real breakaway duty will be higher. Treat these as a lower bound and a")
+    print("wiring/asymmetry verdict, not as final feed-forward constants.")
 
     print("\nNot measured by this run: DEFAULT_TICKS_PER_METER and")
     print("DEFAULT_MAX_SPEED_MM_S both need a known-distance roll on the floor.")
@@ -441,16 +647,30 @@ def calibrate(bd: Backdoor, args) -> int:
         return 1
 
     res = Results()
+    completed = False
     try:
-        check_wiring(bd, args, res)
-        if not res.swapped:
-            measure_deadbands(bd, args, res)
+        # Phase 0 gates everything. If a wheel turns the wrong way, measuring
+        # it produces numbers that look plausible and mean nothing.
+        if args.skip_rotation_check:
+            print("\n[0/3] wheel rotation check SKIPPED (--skip-rotation-check)")
+            print("      Downstream numbers are only valid if a positive command")
+            print("      really does drive the vehicle toward bearing 0.")
+            proceed = True
+        else:
+            proceed = check_rotation(bd, args, res)
+        if proceed:
+            check_wiring(bd, args, res)
+            if not res.swapped:
+                measure_deadbands(bd, args, res)
+            completed = True
     finally:
         bd.dev(False)
         print("\ndev mode released.")
 
-    report(res, args)
-    return 0
+    if completed:
+        report(res, args)
+        return 0
+    return 1
 
 
 # --------------------------------------------------------------------------
@@ -540,7 +760,13 @@ def main() -> int:
     sweep.add_argument("--min-ticks", type=int, default=15,
                        help="tick delta that counts as movement (default 15)")
     sweep.add_argument("--wiring-duty", type=int, default=400,
-                       help="duty used for the wiring check (default 400)")
+                       help="duty used for the rotation and wiring checks (default 400)")
+    sweep.add_argument("--rotation-ms", type=int, default=3000,
+                       help="how long each wheel runs in the phase-0 rotation "
+                            "check (default 3000, the firmware ceiling)")
+    sweep.add_argument("--skip-rotation-check", action="store_true",
+                       help="skip the operator-confirmed rotation check. Only "
+                            "safe when polarity is already known good.")
     args = ap.parse_args()
 
     port = find_port(args.port)

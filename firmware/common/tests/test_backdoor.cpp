@@ -124,6 +124,27 @@ static void test_ver_and_help(void)
     CHECK(out_count > 1, "help prints the verb list");
 }
 
+static void test_cfg_reports_configured_signs(void)
+{
+    reset_all();
+    // Defaults before anyone publishes config: truthful, not invented.
+    send("cfg");
+    CHECK(strcmp(out_line(0),
+                 "=ok cfg enc_left_sign=1 enc_right_sign=1 motor_left_sign=1"
+                 " motor_right_sign=1 ticks_per_m=0.0 max_speed_mm_s=0") == 0,
+          "cfg answers with identity defaults until config is published");
+
+    out_clear();
+    backdoor_set_config(-1, 1, 1, -1, 10000.0f, 600);
+    send("cfg");
+    CHECK(strcmp(out_line(0),
+                 "=ok cfg enc_left_sign=-1 enc_right_sign=1 motor_left_sign=1"
+                 " motor_right_sign=-1 ticks_per_m=10000.0 max_speed_mm_s=600") == 0,
+          "cfg reports the compiled-in constants a bench tool needs");
+    // Without this a tool cannot tell "the configured sign is correct" from
+    // "the sign is +1", because `enc` counts are already sign-corrected.
+}
+
 static void test_unknown_verb_refused(void)
 {
     reset_all();
@@ -383,6 +404,7 @@ static void test_case_insensitive_verbs(void)
 int main(void)
 {
     test_ver_and_help();
+    test_cfg_reports_configured_signs();
     test_unknown_verb_refused();
     test_gate_blocks_wiggle_without_dev();
     test_gate_blocks_dev_when_commander_alive();

@@ -87,6 +87,87 @@ to base" distinction. Frames from the Base over RF are relay-to-Pi5 by default,
 
 ---
 
+## 2a. The Body Frame — one definition of "forward"
+
+Every layer that talks about motion needs the same answer to "which way is
+forward, and which way is a positive rotation." This section is that answer.
+Nothing below is negotiable per-module; a second convention anywhere is a
+sign bug waiting for the worst possible moment.
+
+### Origin and bearings
+
+The frame is fixed to the vehicle and travels with it.
+
+- **Origin:** the driver seat.
+- **Bearings** are measured in the horizontal plane, in degrees:
+
+| Bearing | Direction |
+|---|---|
+| **0°** | straight ahead |
+| **90°** | to the driver's right |
+| **180°** | astern |
+| **270°** (= −90°) | to the driver's left |
+
+Bearings therefore **increase clockwise** as seen from above.
+
+### The vertical axis: z points DOWN
+
+Bearings alone cannot define a rotation. An angular velocity is an axial
+vector, and its sign depends on the vertical axis — so the frame has to name
+one.
+
+**z points down.** This is forced, not chosen: with x along bearing 0° and y
+along bearing 90°, right-handedness requires z = x × y, which is downward.
+
+The payoff is that the bearing numbering above becomes self-consistent: a
+**positive yaw rate turns the nose toward increasing bearing** — a positive
+yaw is a turn to starboard, exactly as the compass numbering implies. Picking
+z up instead would make the frame left-handed and invert every rotation
+result below. (It is also the standard aerospace body frame, which suits a
+vehicle whose tactical layer is called the airframe.)
+
+### Measuring an angular velocity
+
+- **Axis:** by the **right-hand rule** — thumb along ω, fingers curling in the
+  direction of rotation. Since wheel axles are horizontal, a wheel's ω axis is
+  reported as a bearing.
+- **Magnitude:** rad/s about that axis. From encoders,
+  `ω = 2π · Δticks / (ticks_per_rev · Δt)`.
+- **Sense:** ω points toward an observer who sees the rotation as
+  counter-clockwise.
+
+**Consequence for the drive wheels.** In forward motion both wheels' ω lies
+along **bearing 270°** — same axis, same direction, equal magnitude when
+driving straight. Seen from the origin looking along 90°, ω points at the
+observer, so that wheel appears to turn counter-clockwise; looking along
+270°, ω points away, so that wheel appears clockwise. The two wheels are not
+turning "oppositely" — they are being viewed from opposite sides.
+
+### What the firmware uses instead
+
+The wheel-level code deliberately does **not** carry axial vectors. Each
+wheel's rotation is a **signed scalar, positive when the contact patch drives
+the vehicle toward bearing 0°**. Both wheels positive is straight ahead.
+
+This is convention-free: it survives any later revision to the frame, and it
+is already the meaning of `tac_drive(left_mm_s, right_mm_s)`, of the
+backdoor's `wiggle`, and of `MOTOR_*_SIGN` / `ENC_*_SIGN` in
+`airframe/src/config.h`. Those four constants are precisely the adapters that
+make the physical machine agree with this sign rule:
+
+- `MOTOR_LEFT_SIGN` / `MOTOR_RIGHT_SIGN` — applied in `motors_set()`, last
+  thing before the pins, so a positive command drives forward whatever way
+  the motor happens to be wired.
+- `ENC_LEFT_SIGN` / `ENC_RIGHT_SIGN` — applied in `encoders_sample()`, so
+  forward motion counts up.
+
+Both pairs are verified on the bench by
+`python tools/backdoor.py --calibrate`; see `docs/motor_calibration.md`.
+Reserve the bearing-and-right-hand-rule formulation for the world model, the
+IMU and anything that reasons about vehicle attitude.
+
+---
+
 ## 3. The Dividing Line (the heart of the design)
 
 The boundary between the Pilot and the airframe is **not complexity.**
