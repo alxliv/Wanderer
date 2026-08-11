@@ -53,6 +53,11 @@ class FakeSerial:
             self._reply("=ok dev")
         elif verb == "enc":
             self._reply(f"=ok enc left={self.lt} right={self.rt}")
+        elif verb == "help":
+            # The payload rides on `*` lines; the `=ok` carries nothing.
+            self._reply("*backdoor verbs: dev on|off, wiggle <l> <r> <ms>, enc [reset],")
+            self._reply("*  estop, safe, ver, help")
+            self._reply("=ok help")
         elif verb == "estop":
             self._reply("=ok estop")
         elif verb == "wiggle":
@@ -99,17 +104,22 @@ bdmod.time.sleep = lambda *_: None       # run the sweep at full speed
 
 
 class Args:
-    start, max, step, fine = 20, 600, 20, 5
+    # max is deliberately unset: the tool has to learn the ceiling from the
+    # banner, the same way it does against real firmware.
+    start, max, step, fine = 20, None, 20, 5
     pulse_ms, settle, min_ticks, wiring_duty = 400, 0.0, 15, 400
 
 
+args = Args()
 bd = bdmod.Backdoor("SIM")
+print(f"airframe: {bd.ver()}")
+bdmod.apply_limits(bd, args)
 bd.dev(True)
 
 res = bdmod.Results()
-bdmod.check_wiring(bd, Args(), res)
-bdmod.measure_deadbands(bd, Args(), res)
-bdmod.report(res, Args())
+bdmod.check_wiring(bd, args, res)
+bdmod.measure_deadbands(bd, args, res)
+bdmod.report(res, args)
 
 print("\n" + "=" * 68)
 print("SIMULATION SELF-CHECK")
@@ -124,6 +134,12 @@ def check(cond, msg):
         fails += 1
 
 
+check(bd.request("help") == "=ok help", "help acknowledged")
+check(len(bd.notes) == 2 and bd.notes[0].startswith("*backdoor verbs"),
+      f"help payload kept, not discarded: {bd.notes}")
+check(bd.max_duty == 600, f"max_duty read from the banner: {bd.max_duty}")
+check(bd.max_ms == 3000, f"max_ms read from the banner: {bd.max_ms}")
+check(args.max == 600, f"sweep ceiling taken from the board: {args.max}")
 check(res.left_sign == LEFT_SIGN, f"left sign {res.left_sign} == {LEFT_SIGN}")
 check(res.right_sign == RIGHT_SIGN, f"right sign {res.right_sign} == {RIGHT_SIGN}")
 check(not res.swapped, "wiring not reported swapped")

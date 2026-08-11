@@ -45,11 +45,10 @@ except ImportError:
 # Raspberry Pi vendor ID; the Pico 2 enumerates its CDC interface under it.
 RPI_VID = 0x2E8A
 
-# Firmware rails, mirrored from firmware/common/backdoor_handler.h. The tool
-# never needs to enforce these (the firmware clamps and says so in its reply)
-# but sweeping past them would just waste time on identical results.
-MAX_DUTY_PERMILLE = 600
-MAX_WIGGLE_MS = 3000
+
+def reply_fields(reply: str) -> dict[str, str]:
+    """Split `=ok <verb> k=v k=v ...` into its key/value pairs."""
+    return dict(tok.split("=", 1) for tok in reply.split()[2:] if "=" in tok)
 
 
 # --------------------------------------------------------------------------
@@ -64,6 +63,14 @@ class Backdoor:
         self.ser = serial.Serial(port, 115200, timeout=timeout)
         self.verbose = verbose
         self.events: list[str] = []
+        # `*` lines emitted while serving the last request. Some replies carry
+        # their whole payload this way -- `help` is only these lines -- so a
+        # caller that wants to show a reply to a human must show these too.
+        self.notes: list[str] = []
+        # The board's own bench rails, learned from the `ver` banner. None
+        # until ver() has been called, and on firmware too old to report them.
+        self.max_duty: int | None = None
+        self.max_ms: int | None = None
         time.sleep(0.3)             # let the port settle after opening
         self.ser.reset_input_buffer()
 
@@ -83,9 +90,14 @@ class Backdoor:
         return line
 
     def request(self, line: str) -> str:
-        """Send a request; skip `*` logs and `!` events until the reply."""
+        """Send a request and return its `=ok`/`=err` line.
+
+        `*` log lines seen on the way are collected in `notes` (replacing the
+        previous request's), `!` events in `events`.
+        """
         if self.verbose:
             print(f"    > {line}")
+        self.notes.clear()
         self.ser.write((line + "\r\n").encode("ascii"))
         self.ser.flush()
         while True:
@@ -94,7 +106,8 @@ class Backdoor:
                 return got
             if got.startswith("!"):
                 self.events.append(got)
-            # `*` bench logs and blanks fall through and are ignored
+            elif got.startswith("*"):
+                self.notes.append(got)
 
     def await_event(self, prefix: str, timeout: float = 6.0) -> str:
         """Block until an event line with `prefix` arrives."""
@@ -117,7 +130,21 @@ class Backdoor:
     # -- verbs --------------------------------------------------------------
 
     def ver(self) -> str:
-        return self.request("ver")
+        """Read the banner, and with it the duty/duration ceilings in force.
+
+        These are the firmware's own numbers (BACKDOOR_MAX_* in
+        backdoor_handler.h). Asking rather than hardcoding means reflashing
+        with different rails needs no edit here, and that a sweep bounded by
+        them is bounded by what this board will actually honour.
+        """
+        reply = self.request("ver")
+        fields = reply_fields(reply)
+        try:
+            self.max_duty = int(fields["max_duty"])
+            self.max_ms = int(fields["max_ms"])
+        except (KeyError, ValueError):
+            pass                # older firmware; caller falls back to warning
+        return reply
 
     def dev(self, on: bool) -> str:
         return self.request(f"dev {'on' if on else 'off'}")
@@ -129,7 +156,7 @@ class Backdoor:
         reply = self.request("enc")
         if not reply.startswith("=ok"):
             raise RuntimeError(f"enc refused: {reply}")
-        fields = dict(tok.split("=", 1) for tok in reply.split()[2:] if "=" in tok)
+        fields = reply_fields(reply)
         return int(fields["left"]), int(fields["right"])
 
     def wiggle(self, left: int, right: int, ms: int) -> str:
@@ -363,7 +390,10 @@ def report(res: Results, args) -> None:
 
 
 def calibrate(bd: Backdoor, args) -> int:
-    print(f"airframe: {bd.ver()}")
+    if args.max is None:
+        print("This firmware does not report its duty ceiling, so the sweep has no")
+        print("upper bound to work with. Pass one explicitly with --max.")
+        return 1
 
     reply = bd.dev(True)
     if not reply.startswith("=ok"):
@@ -396,7 +426,6 @@ def calibrate(bd: Backdoor, args) -> int:
 # --------------------------------------------------------------------------
 
 def console(bd: Backdoor) -> int:
-    print(f"airframe: {bd.ver()}")
     print("Type backdoor verbs; `help` lists them, Ctrl-D or `quit` exits.\n")
     while True:
         try:
@@ -409,7 +438,12 @@ def console(bd: Backdoor) -> int:
         if line in ("quit", "exit"):
             return 0
         try:
-            print(bd.request(line))
+            reply = bd.request(line)
+            # Notes first: they are what the firmware wanted to say, and for
+            # `help` they are the entire answer -- the `=ok` is just the ack.
+            for note in bd.notes:
+                print(note)
+            print(reply)
             while bd.events:
                 print(bd.events.pop(0))
         except TimeoutError as e:
@@ -417,6 +451,21 @@ def console(bd: Backdoor) -> int:
 
 
 # --------------------------------------------------------------------------
+
+def apply_limits(bd: Backdoor, args) -> None:
+    """Bound the sweep by the rails the board reported in its banner.
+
+    The firmware clamps out-of-range requests anyway, so this is not the
+    safety mechanism -- it only stops the sweep from spending real pulses on
+    requests that would all come back identical.
+    """
+    if bd.max_duty is None or bd.max_ms is None:
+        print("! this firmware does not report max_duty/max_ms; sweep bounds left")
+        print("  as given (the firmware still clamps whatever it is sent)")
+        return
+    args.max = bd.max_duty if args.max is None else min(args.max, bd.max_duty)
+    args.pulse_ms = min(args.pulse_ms, bd.max_ms)
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(
@@ -430,12 +479,12 @@ def main() -> int:
 
     sweep = ap.add_argument_group("sweep parameters")
     sweep.add_argument("--start", type=int, default=20, help="first duty tried (default 20)")
-    sweep.add_argument("--max", type=int, default=MAX_DUTY_PERMILLE,
-                       help=f"highest duty tried (default {MAX_DUTY_PERMILLE})")
+    sweep.add_argument("--max", type=int, default=None,
+                       help="highest duty tried (default: the board's max_duty)")
     sweep.add_argument("--step", type=int, default=20, help="coarse step (default 20)")
     sweep.add_argument("--fine", type=int, default=5, help="refinement step (default 5)")
     sweep.add_argument("--pulse-ms", type=int, default=400,
-                       help=f"pulse length, capped at {MAX_WIGGLE_MS} (default 400)")
+                       help="pulse length (default 400, capped at the board's max_ms)")
     sweep.add_argument("--settle", type=float, default=0.6,
                        help="rest time before each pulse (default 0.6s)")
     sweep.add_argument("--min-ticks", type=int, default=15,
@@ -443,9 +492,6 @@ def main() -> int:
     sweep.add_argument("--wiring-duty", type=int, default=400,
                        help="duty used for the wiring check (default 400)")
     args = ap.parse_args()
-
-    args.pulse_ms = min(args.pulse_ms, MAX_WIGGLE_MS)
-    args.max = min(args.max, MAX_DUTY_PERMILLE)
 
     port = find_port(args.port)
     print(f"Opening {port}")
@@ -459,6 +505,8 @@ def main() -> int:
 
     bd = Backdoor(port, verbose=args.verbose)
     try:
+        print(f"airframe: {bd.ver()}")
+        apply_limits(bd, args)
         return calibrate(bd, args) if args.calibrate else console(bd)
     except KeyboardInterrupt:
         print("\ninterrupted -- sending estop")

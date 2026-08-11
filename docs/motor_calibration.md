@@ -62,6 +62,10 @@ wire:
 - out-of-range values are **clamped and reported**, so the `=ok` reply always
   states what was actually applied
 
+Both ceilings are advertised in the `ver` banner (`max_duty=… max_ms=…`), and
+`tools/backdoor.py` reads them from there rather than keeping its own copy — so
+reflashing with different rails needs no change to the tool.
+
 ## 4. Build and flash
 
 ```sh
@@ -129,6 +133,8 @@ Suggested config.h additions:
 
 Useful knobs: `--step` / `--fine` (sweep resolution), `--pulse-ms`,
 `--min-ticks` (what counts as movement), `--verbose` (echo the wire traffic).
+`--max` defaults to the ceiling the board reports, and both it and `--pulse-ms`
+are capped to what that board will honour.
 
 ### Why the asymmetry number matters
 
