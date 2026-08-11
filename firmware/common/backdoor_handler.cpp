@@ -211,8 +211,9 @@ static void do_ver(void)
 static void do_help(void)
 {
     emit("*backdoor verbs: dev on|off, wiggle <l> <r> <ms>, enc [reset],");
-    emit("*  estop, safe, ver, help");
+    emit("*  estop, safe, clear_fault, ver, help");
     emit("*wiggle needs dev on, which needs SAFE + no live cockpit commander");
+    emit("*estop latches FAULT; clear_fault lifts it, then safe/dev on works again");
     reply_ok("help", NULL);
 }
 
@@ -239,6 +240,11 @@ static void dispatch(char *line, uint64_t now_us)
         end_wiggle(false, NULL);
         tac_dev_release();
         reply_rc("safe", tac_disarm());
+    } else if (codec_token_eq(verb, "clear_fault")) {
+        // Same call the cockpit's clear_fault makes: ESTOP's condition is
+        // definitionally gone once commanded away (spec section 6). Tier 3
+        // faults will plug a real check in here on both interfaces at once.
+        reply_rc("clear_fault", tac_clear_fault(true));
     } else if (codec_token_eq(verb, "dev")) {
         do_dev(tokens, n, now_us);
     } else if (codec_token_eq(verb, "wiggle")) {

@@ -278,6 +278,36 @@ static void test_estop_always_honored(void)
           "no bench session while a fault stands");
 }
 
+static void test_clear_fault_recovers_without_cockpit(void)
+{
+    reset_all();
+    send("estop");
+    out_clear();
+
+    send("dev on");
+    CHECK(strcmp(out_line(0), "=err dev fault_latched") == 0,
+          "fault still blocks the lease before clearing");
+
+    out_clear();
+    send("clear_fault");
+    CHECK(strcmp(out_line(0), "=ok clear_fault") == 0,
+          "the bench can lift its own fault -- no cockpit required");
+    CHECK(tac_state() == TacticalState::Safe, "back to SAFE");
+
+    out_clear();
+    send("dev on");
+    CHECK(strcmp(out_line(0), "=ok dev") == 0,
+          "lease grantable again after clear_fault");
+}
+
+static void test_clear_fault_refused_without_a_fault(void)
+{
+    reset_all();
+    send("clear_fault");
+    CHECK(strcmp(out_line(0), "=err clear_fault no_fault") == 0,
+          "nothing to clear from a clean SAFE state");
+}
+
 static void test_dev_off_and_abort_stop_the_wheels(void)
 {
     reset_all();
@@ -363,6 +393,8 @@ int main(void)
     test_wiggle_arg_validation();
     test_commander_arrival_revokes_mid_wiggle();
     test_estop_always_honored();
+    test_clear_fault_recovers_without_cockpit();
+    test_clear_fault_refused_without_a_fault();
     test_dev_off_and_abort_stop_the_wheels();
     test_enc_reads_and_resets();
     test_line_hygiene();

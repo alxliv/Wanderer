@@ -160,6 +160,12 @@ class Backdoor:
     def estop(self) -> str:
         return self.request("estop")
 
+    def safe(self) -> str:
+        return self.request("safe")
+
+    def clear_fault(self) -> str:
+        return self.request("clear_fault")
+
     def enc(self) -> tuple[int, int]:
         reply = self.request("enc")
         if not reply.startswith("=ok"):
@@ -421,7 +427,7 @@ def acquire_dev(bd: Backdoor) -> bool:
     elif "not_safe" in reply:
         print("The FSM is armed. Send `safe`, then retype `dev on`.")
     elif "fault_latched" in reply:
-        print("A fault is latched. Clear it over the cockpit, then retype `dev on`.")
+        print("A fault is latched. Type `clear_fault`, then retype `dev on`.")
     return False
 
 
@@ -451,6 +457,23 @@ def calibrate(bd: Backdoor, args) -> int:
 # interactive console
 # --------------------------------------------------------------------------
 
+def explain_wiggle_error(reply: str) -> None:
+    """Expand a terse `=err wiggle bad_args ...` into what to type instead.
+
+    The wire reply stays terse on purpose (it is what a sweep script parses);
+    this is purely for the human typing at the console.
+    """
+    if not reply.startswith("=err wiggle bad_args"):
+        return
+    print("  wiggle <left> <right> <ms>")
+    print("    left, right : per-mille duty for each wheel (tenths of a percent;")
+    print("                  negative = reverse), clamped to the board's max_duty")
+    print("                  from `ver` (600 = 60% by default)")
+    print("    ms          : pulse duration in milliseconds, > 0, clamped to the")
+    print("                  board's max_ms from `ver` (3000 by default)")
+    print("  example: wiggle 300 300 500")
+
+
 def console(bd: Backdoor) -> int:
     print("Type backdoor verbs; `help` lists them, Ctrl-D or `quit` exits.\n")
     while True:
@@ -470,6 +493,7 @@ def console(bd: Backdoor) -> int:
             for note in bd.notes:
                 print(note)
             print(reply)
+            explain_wiggle_error(reply)
             while bd.events:
                 print(bd.events.pop(0))
         except TimeoutError as e:
@@ -539,16 +563,21 @@ def main() -> int:
         acquire_dev(bd)
         return console(bd)
     except KeyboardInterrupt:
-        print("\ninterrupted -- sending estop")
+        # `safe` stops any wiggle and drops the dev lease exactly like `estop`
+        # does, but leaves the FSM in SAFE rather than a latched FAULT --
+        # recoverable with `dev on`, not stuck until the cockpit clears it.
+        # A real emergency stop is still one `estop` away if the operator
+        # types it themselves.
+        print("\ninterrupted -- sending safe")
         try:
-            print(bd.estop())
+            print(bd.safe())
         except Exception:
             pass
         return 130
     except (TimeoutError, RuntimeError) as e:
         print(f"\nerror: {e}")
         try:
-            bd.estop()
+            bd.safe()
         except Exception:
             pass
         return 1

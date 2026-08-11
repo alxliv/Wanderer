@@ -15,6 +15,7 @@
 //   --------------------------  ---------------------------------------------
 //   estop                       emergency override
 //   safe                        emergency override
+//   clear_fault                 emergency override (undoes estop)
 //   dev on | dev off            (the gate itself -- authority, not operation)
 //   wiggle <l> <r> <ms>         dev-time diagnostic (raw bench wiggle)
 //   enc [reset]                 dev-time diagnostic (read a counter)
@@ -26,6 +27,13 @@
 // there is deliberately NO streaming motion verb: `wiggle` is one-shot and
 // self-terminating, so a dropped USB cable stops the wheels instead of
 // latching them on.
+//
+// `clear_fault` earns its place because `estop` does: a bench session can
+// be running with no cockpit attached at all, so a verb capable of latching
+// FAULT must be matched by one capable of lifting it, or the operator is
+// stuck until they go find a Pi5. Same semantics as the cockpit's own
+// `clear_fault` (tac_clear_fault(true) -- Tier 3 faults will plug a real
+// condition check in here on both interfaces at once).
 //
 // Transport-agnostic in the same way cockpit_handler is: feed it bytes, give
 // it sinks. It owns its OWN LineAssembler, so the airframe runs this and the
