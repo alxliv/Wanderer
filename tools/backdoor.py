@@ -71,6 +71,11 @@ class Backdoor:
         # until ver() has been called, and on firmware too old to report them.
         self.max_duty: int | None = None
         self.max_ms: int | None = None
+        # Mirrors the firmware's tac_dev_active(), updated only from our own
+        # `dev` replies -- so it can go stale if the lease is revoked out from
+        # under us (cockpit arrival, fault, ESTOP). acquire_dev() re-checks
+        # rather than trusting a stale True across a whole session.
+        self.dev_active = False
         time.sleep(0.3)             # let the port settle after opening
         self.ser.reset_input_buffer()
 
@@ -147,7 +152,10 @@ class Backdoor:
         return reply
 
     def dev(self, on: bool) -> str:
-        return self.request(f"dev {'on' if on else 'off'}")
+        reply = self.request(f"dev {'on' if on else 'off'}")
+        if reply.startswith("=ok"):
+            self.dev_active = on
+        return reply
 
     def estop(self) -> str:
         return self.request("estop")
@@ -389,24 +397,42 @@ def report(res: Results, args) -> None:
     print("DEFAULT_MAX_SPEED_MM_S both need a known-distance roll on the floor.")
 
 
+def acquire_dev(bd: Backdoor) -> bool:
+    """Grab the bench motion lease, right after connecting.
+
+    backdoor.py is only ever driven by a human at the console or by
+    --calibrate; `wiggle` -- the only verb that does anything -- is refused
+    by the firmware without this (see backdoor_handler.h), so there is no
+    session here that benefits from staying in `dev off`.
+
+    Not fatal on failure: `ver`, `enc`, `estop`, `safe` and `help` all work
+    without the lease, so an operator locked out by a live cockpit, an armed
+    FSM, or a latched fault can still see why over this same connection,
+    clear it, and retype `dev on` by hand.
+    """
+    reply = bd.dev(True)
+    if reply.startswith("=ok"):
+        print("dev mode acquired -- the backdoor holds the motion lease\n")
+        return True
+    print(f"\ncould not acquire dev mode: {reply}")
+    if "commander_present" in reply:
+        print("A cockpit commander is live on UART0. Disconnect the Pi5 (or stop")
+        print("its cockpit process), wait a second, and retype `dev on`.")
+    elif "not_safe" in reply:
+        print("The FSM is armed. Send `safe`, then retype `dev on`.")
+    elif "fault_latched" in reply:
+        print("A fault is latched. Clear it over the cockpit, then retype `dev on`.")
+    return False
+
+
 def calibrate(bd: Backdoor, args) -> int:
     if args.max is None:
         print("This firmware does not report its duty ceiling, so the sweep has no")
         print("upper bound to work with. Pass one explicitly with --max.")
         return 1
 
-    reply = bd.dev(True)
-    if not reply.startswith("=ok"):
-        print(f"\nCould not acquire dev mode: {reply}")
-        if "commander_present" in reply:
-            print("A cockpit commander is live on UART0. Disconnect the Pi5 (or stop")
-            print("its cockpit process), wait a second, and rerun.")
-        elif "not_safe" in reply:
-            print("The FSM is armed. Send `safe` first.")
-        elif "fault_latched" in reply:
-            print("A fault is latched. Clear it over the cockpit before benching.")
+    if not acquire_dev(bd):
         return 1
-    print("dev mode acquired -- the backdoor holds the motion lease\n")
 
     res = Results()
     try:
@@ -496,9 +522,10 @@ def main() -> int:
     port = find_port(args.port)
     print(f"Opening {port}")
 
-    if args.calibrate and not args.yes:
-        print("\n  The wheels will turn. Confirm the chassis is raised and securely")
-        print("  supported, both wheels spin free, and motor power is ON.")
+    if not args.yes:
+        print("\n  Connecting grants this session the motion lease -- wheels can move")
+        print("  the moment a `wiggle` is sent. Confirm the chassis is raised and")
+        print("  securely supported, both wheels spin free, and motor power is ON.")
         if input("  Type YES to proceed: ").strip() != "YES":
             print("Aborted.")
             return 1
@@ -507,7 +534,10 @@ def main() -> int:
     try:
         print(f"airframe: {bd.ver()}")
         apply_limits(bd, args)
-        return calibrate(bd, args) if args.calibrate else console(bd)
+        if args.calibrate:
+            return calibrate(bd, args)
+        acquire_dev(bd)
+        return console(bd)
     except KeyboardInterrupt:
         print("\ninterrupted -- sending estop")
         try:
@@ -523,6 +553,11 @@ def main() -> int:
             pass
         return 1
     finally:
+        if bd.dev_active:
+            try:
+                bd.dev(False)
+            except Exception:
+                pass
         bd.close()
 
 
