@@ -118,7 +118,8 @@ int main(void)
 
     tac_init();
     cockpit_init(cockpit_line_out, FW_VERSION_MAJOR, FW_VERSION_MINOR,
-                 TRACK_WIDTH_M / 2.0f, DEFAULT_MAX_SPEED_MM_S / 1000.0f);
+                 DEFAULT_TICKS_PER_METER, TRACK_WIDTH_M / 2.0f,
+                 DEFAULT_MAX_SPEED_MM_S / 1000.0f);
     cockpit_set_odometry_provider(odometry_provider);
     // Relay sink deliberately not set: `^` payloads are dropped until the
     // RF modem hat lands (cockpit spec section 4).

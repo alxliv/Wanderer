@@ -20,12 +20,14 @@ typedef void (*cockpit_sink)(const char *line);
 typedef void (*cockpit_odom_fn)(int32_t *left_ticks, int32_t *right_ticks,
                                 float *left_m_s, float *right_m_s);
 
-// Wire up sink, version, and vehicle limits. Registers the tactical
+// Wire up sink, version, geometry, and vehicle limits. Registers the tactical
 // change-state callback: every FSM transition emits `!state` (preceded by
 // `!fault` when latching), whatever caused it.
 //
-// `half_track_m`  -- centre-to-wheel distance; converts a drive request's body
-//                    velocities into per-wheel targets.
+// `ticks_per_meter` -- encoder calibration reported by get_geometry.
+// `half_track_m`    -- centre-to-wheel distance; converts a drive request's
+//                      body velocities into per-wheel targets; twice this
+//                      value is reported by get_geometry.
 // `max_wheel_m_s` -- what one wheel can actually deliver. A request needing
 //                    more has BOTH wheels scaled down by one factor, so the
 //                    commanded turn radius survives and only the speed drops;
@@ -37,7 +39,8 @@ typedef void (*cockpit_odom_fn)(int32_t *left_ticks, int32_t *right_ticks,
 // Both are passed in rather than included because this module is shared and
 // airframe/src/config.h is a target-private pin/tuning map.
 void cockpit_init(cockpit_sink sink, uint8_t fw_major, uint8_t fw_minor,
-                  float half_track_m, float max_wheel_m_s);
+                  float ticks_per_meter, float half_track_m,
+                  float max_wheel_m_s);
 
 void cockpit_set_odometry_provider(cockpit_odom_fn fn);
 

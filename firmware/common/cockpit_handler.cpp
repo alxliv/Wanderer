@@ -13,6 +13,7 @@ static cockpit_sink    s_sink;
 static cockpit_sink    s_relay;
 static cockpit_odom_fn s_odom;
 static uint8_t         s_fwMajor, s_fwMinor;
+static float           s_ticksPerMeter;
 static float           s_halfTrackM;
 static float           s_maxWheelMs;
 static LineAssembler   s_asm;
@@ -39,11 +40,13 @@ static void on_change_state(TacticalState from, TacticalState to)
 }
 
 void cockpit_init(cockpit_sink sink, uint8_t fw_major, uint8_t fw_minor,
-                  float half_track_m, float max_wheel_m_s)
+                  float ticks_per_meter, float half_track_m,
+                  float max_wheel_m_s)
 {
     s_sink = sink;
     s_fwMajor = fw_major;
     s_fwMinor = fw_minor;
+    s_ticksPerMeter = ticks_per_meter;
     s_halfTrackM = half_track_m;
     s_maxWheelMs = max_wheel_m_s;
     s_relay = NULL;
@@ -137,6 +140,7 @@ static void handle_request(char *line, uint64_t now_us)
     static const char *KNOWN[] = {
         "ping", "arm", "disarm", "estop", "clear_fault",
         "drive", "stop", "get_state", "get_odometry", "get_version",
+        "get_geometry",
     };
     bool known = false;
     for (unsigned i = 0; i < sizeof KNOWN / sizeof KNOWN[0]; ++i)
@@ -215,6 +219,11 @@ static void handle_request(char *line, uint64_t now_us)
         char fields[24];
         snprintf(fields, sizeof fields, "fw=%u.%u", s_fwMajor, s_fwMinor);
         reply_ok_fields("get_version", fields);
+    } else if (codec_token_eq(verb, "get_geometry")) {
+        char fields[48];
+        snprintf(fields, sizeof fields, "tpm=%.3f track=%.3f",
+                 (double)s_ticksPerMeter, (double)(2.0f * s_halfTrackM));
+        reply_ok_fields("get_geometry", fields);
     }
 }
 

@@ -424,12 +424,10 @@ One known simulator delta remains: **`sim.py` `clear_fault`** always succeeds,
 while firmware checks `condition_cleared`. The simulator should model
 `fault_persists` once a simulated persistent fault exists (Tier 3 work).
 
-**`get_geometry` is spec + pilot + sim only for now.** The firmware handler
-does not implement it yet and answers `=err ? unknown_command get_geometry` —
-the correct old-firmware behavior. Implementing it requires `cockpit_init` to
-receive `ticks_per_meter` (today only `half_track_m` crosses that boundary;
-the tick calibration lives in `airframe/src/config.h`), so it lands with the
-next firmware pass alongside the UART event wiring above.
+**`get_geometry` is implemented across spec, pilot, simulator, and firmware.**
+The firmware handler receives both drivetrain calibration values from
+`airframe/src/config.h`, keeping target-private tuning out of the shared
+handler while reporting the exact values used by the airframe.
 
 **The backdoor authority gate — implemented.** Architecture §3a requires the
 raw/open-loop motion surface to be gated to a Pi5-absent / dev mode, so the

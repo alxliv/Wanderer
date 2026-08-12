@@ -62,9 +62,9 @@ static void send(const char *line)
 static void fresh(void)
 {
     tac_init();
-    // fw 0.3, half-track 0.15 m (0.30 m track), wheel limit 0.6 m/s -- the
-    // rover's real geometry and DEFAULT_MAX_SPEED_MM_S.
-    cockpit_init(sink, 0, 3, 0.15f, 0.6f);
+    // fw 0.3, 3831 ticks/m, half-track 0.15 m (0.30 m track), wheel limit
+    // 0.6 m/s -- the rover's real geometry and DEFAULT_MAX_SPEED_MM_S.
+    cockpit_init(sink, 0, 3, 3831.0f, 0.15f, 0.6f);
     out_clear();
     relay_count = 0;
     g_now = 1000000;
@@ -81,6 +81,7 @@ static void test_handshake_and_motion(void)   // spec section 9, first example
     send("ping");            EXPECT(0, "=ok ping");
     send("get_version");     EXPECT(1, "=ok get_version fw=0.3");
     send("get_state");       EXPECT(2, "=ok get_state state=SAFE");
+    send("get_geometry");    EXPECT(3, "=ok get_geometry tpm=3831.000 track=0.300");
     out_clear();
 
     send("arm");
@@ -235,7 +236,7 @@ static void test_drive_saturation(void)
 
     // Limiting is opt-in: <= 0 leaves only the int16 range guard.
     tac_init();
-    cockpit_init(sink, 0, 3, 0.15f, 0.0f);
+    cockpit_init(sink, 0, 3, 3831.0f, 0.15f, 0.0f);
     send("arm");
     out_clear();
     send("drive 5.000 0.000");
