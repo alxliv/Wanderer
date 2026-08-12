@@ -9,14 +9,13 @@ window, which a human at a raw terminal cannot do.
 Vocabulary (no jargon; + is clockwise, - counterclockwise):
 
   arm / disarm / estop / clear      state transitions (arming is always manual)
-  speed <m/s>                       set forward speed (negative = reverse)
-  full | half | slow                telegraph presets (presets.py)
-  back full | back half | back slow reverse presets
+    speed <m/s>                       select a positive linear speed (default 0.1)
+    f | b                             move forward | backward at selected speed
   bank <deg/s>                      rotate at this rate, hold until changed
   turn <deg>                        rotate BY this many degrees, then stop
                                     rotating  [placeholder: closed from Linux
                                     over odometry until firmware Tier 2 lands]
-  stop                              speed 0, bank 0
+    s                                 stop movement and rotation
   state | odom | version | geometry queries
   help | quit
 
@@ -61,10 +60,12 @@ class Helm:
         self._log_path = os.path.expanduser(log_path)
         os.makedirs(os.path.dirname(self._log_path), exist_ok=True)
         self._log_lock = threading.Lock()
-        # The latched setpoint, captain convention: speed m/s, bank deg/s
-        # clockwise-positive. The streamer is the only writer to the wire.
+        # The latched setpoint, captain convention: positive speed magnitude,
+        # direction (-1/0/+1), and clockwise-positive bank deg/s. The streamer
+        # is the only writer to the wire.
         self._sp_lock = threading.Lock()
-        self._speed = 0.0
+        self._speed = presets.DEFAULT_SPEED
+        self._direction = 0
         self._bank_dps = 0.0
         # Engaged = the human has asserted motion intent since the last
         # SAFE/FALLBACK/FAULT. Only an engaged helm streams `drive`; a
@@ -129,7 +130,7 @@ class Helm:
             try:
                 if self._engaged:
                     with self._sp_lock:
-                        speed, omega = self._speed, self._omega()
+                        speed, omega = self._linear_speed(), self._omega()
                     self._cockpit.drive(speed, omega)
                 else:
                     now = time.monotonic()
@@ -148,6 +149,9 @@ class Helm:
         # convention). The helm negates here and NOWHERE else.
         return -math.radians(self._bank_dps)
 
+    def _linear_speed(self) -> float:
+        return self._direction * self._speed
+
     # ---- events -> log ---------------------------------------------------
 
     def _on_event(self, event: Event) -> None:
@@ -157,7 +161,8 @@ class Helm:
             if event.new in (TacticalState.FALLBACK, TacticalState.FAULT,
                              TacticalState.SAFE):
                 with self._sp_lock:
-                    self._speed = self._bank_dps = 0.0
+                    self._direction = 0
+                    self._bank_dps = 0.0
                 self._engaged = False
         elif isinstance(event, FaultRaised):
             self._log(f"!fault {FAULT_NAMES.get(event.code, event.code)}")
@@ -198,35 +203,28 @@ class Helm:
             self._engaged = True
             print("armed")
         elif cmd == "disarm":
-            self._set_speed_bank(0.0, 0.0)
+            self._stop_motion()
             self._engaged = False
             self._cockpit.disarm()
             print("safe")
         elif cmd == "estop":
-            self._set_speed_bank(0.0, 0.0)
+            self._stop_motion()
             self._engaged = False
             self._cockpit.estop()
             print("EMERGENCY STOP — fault latched; 'clear' then 'arm' to recover")
         elif cmd == "clear":
             self._cockpit.clear_fault()
             print("fault cleared, state SAFE")
-        elif cmd == "stop":
-            self._set_speed_bank(0.0, 0.0)
+        elif cmd == "s":
+            self._stop_motion()
             self._assert_intent()
             print("all stop")
         elif cmd == "speed":
             self._set_speed(float(tok[1]))
-        elif cmd == "full":
-            self._set_speed(presets.FULL_SPEED)
-        elif cmd == "half":
-            self._set_speed(presets.HALF_SPEED)
-        elif cmd == "slow":
-            self._set_speed(presets.SLOW_SPEED)
-        elif cmd == "back":
-            sub = tok[1]
-            self._set_speed(-{"full": presets.FULL_SPEED,
-                              "half": presets.HALF_SPEED,
-                              "slow": presets.SLOW_SPEED}[sub])
+        elif cmd == "f":
+            self._move(1)
+        elif cmd == "b":
+            self._move(-1)
         elif cmd == "bank":
             dps = float(tok[1])
             with self._sp_lock:
@@ -256,15 +254,24 @@ class Helm:
         return True
 
     def _set_speed(self, v: float) -> None:
+        if not math.isfinite(v) or v <= 0.0:
+            raise ValueError
         with self._sp_lock:
             self._speed = v
-        self._assert_intent()
-        word = "ahead" if v > 0 else "back" if v < 0 else "stopped"
-        print(f"speed {v:g} m/s ({word})")
+        print(f"speed set to {v:g} m/s")
 
-    def _set_speed_bank(self, v: float, b: float) -> None:
+    def _move(self, direction: int) -> None:
         with self._sp_lock:
-            self._speed, self._bank_dps = v, b
+            self._direction = direction
+            speed = self._speed
+        self._assert_intent()
+        word = "forward" if direction > 0 else "backward"
+        print(f"moving {word} at {speed:g} m/s")
+
+    def _stop_motion(self) -> None:
+        with self._sp_lock:
+            self._direction = 0
+            self._bank_dps = 0.0
 
     def _assert_intent(self) -> None:
         """A motion order from the human re-engages the streamer.
@@ -290,10 +297,9 @@ class Helm:
         """
         if deg == 0.0:
             return
-        g = self._geometry
         with self._sp_lock:
-            if abs(self._speed) > presets.TURN_SPEED:
-                self._speed = math.copysign(presets.TURN_SPEED, self._speed)
+            if self._direction != 0 and self._speed > presets.TURN_SPEED:
+                self._speed = presets.TURN_SPEED
                 print(f"slowing to {self._speed:g} m/s for the turn "
                       "(stays there after)")
             self._bank_dps = math.copysign(presets.TURN_RATE_DPS, deg)

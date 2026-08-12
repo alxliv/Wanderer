@@ -25,7 +25,7 @@ TICK_PERIOD_S = 0.02  # 50 Hz FSM tick, plenty for liveness resolution
 
 # The rover's real geometry, from firmware/airframe/src/config.h:
 # TRACK_WIDTH_M / 2, and DEFAULT_MAX_SPEED_MM_S / 1000.
-HALF_TRACK_M = 0.15
+HALF_TRACK_M = 0.0975
 MAX_WHEEL_M_S = 0.6
 
 

@@ -83,7 +83,7 @@
 #define PICO2_UART_BAUD   115200
 
 /* ---- Vehicle geometry ---- */
-#define TRACK_WIDTH_M     0.30f /* wheel-to-wheel; calibrate on the rover */
+#define TRACK_WIDTH_M     0.195f /* wheel-to-wheel; calibrate on the rover */
 
 /* ---- Control loop ---- */
 #define CONTROL_HZ        100   /* reflexive control-loop rate */

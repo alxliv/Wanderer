@@ -6,10 +6,8 @@ startup (get_geometry) and performance limits are the airframe's own
 business (it scales over-limit drive requests itself).
 """
 
-# Telegraph speeds, m/s. 'full' is the anchor; the rest derive from it.
-FULL_SPEED = 1.0
-HALF_SPEED = FULL_SPEED / 2
-SLOW_SPEED = FULL_SPEED / 5
+# Initial linear speed setting, m/s. Selecting a speed does not start motion.
+DEFAULT_SPEED = 0.1
 
 # 'turn <deg>' maneuver: rotation rate used, and the speed cap applied
 # while turning (current speed above the cap is reduced to it and NOT

@@ -311,5 +311,5 @@ including the hand-turning step, and checks the arithmetic.
 - **`DEFAULT_MAX_SPEED_MM_S`** (600) — needs a sustained run near full duty,
   which needs more floor than a USB cable reaches. Waits for the Pi5 to carry
   the tool, driven over ssh, untethered.
-- **`TRACK_WIDTH_M`** (0.30f) — needs a measured *rotation* rather than a
+- **`TRACK_WIDTH_M`** (0.195f) — needs a measured *rotation* rather than a
   straight roll. Its own procedure, not yet automated.
