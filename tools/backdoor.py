@@ -766,10 +766,13 @@ def calibrate(bd: Backdoor, args) -> int:
 # The seed only picks the stopping point. The result comes from the tape, so
 # overshoot does not matter and none of this needs to be precise.
 
+DEFAULT_TICKS_PER_REV = (827.2, 825.2)  # left, right
+DEFAULT_WHEEL_DIAMETER_MM = 68.0
+
 @dataclass
 class FloorResults:
-    ticks_per_rev: tuple[float, float] | None = None
-    wheel_diameter_mm: float | None = None
+    ticks_per_rev: tuple[float, float] | None = DEFAULT_TICKS_PER_REV
+    wheel_diameter_mm: float | None = DEFAULT_WHEEL_DIAMETER_MM
     seed_ticks_per_m: float | None = None
     left_ticks: int = 0
     right_ticks: int = 0
@@ -831,6 +834,27 @@ def wait_for_key(key: str, message: str) -> bool:
         print(f"  Type {key} and press Enter, or q to abort.")
 
 
+def accept_current(param: str, value: float) -> bool | None:
+    """Ask whether to keep a stored calibration value or measure it again."""
+    for _ in range(5):
+        try:
+            answer = input(
+                f"  Currently set {param} is {value:g}. "
+                "Press 'y' to accept or 'n' to re-run measurement: "
+            ).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if answer == "y":
+            return True
+        if answer == "n":
+            return False
+        if answer in ("q", "quit", "abort"):
+            return None
+        print("  Please press y or n.")
+    return None
+
+
 def measure_ticks_per_rev(bd: Backdoor, wheel: str, turns: int) -> float | None:
     """Guide the operator through turning one wheel by hand, and count.
 
@@ -865,9 +889,12 @@ def measure_ticks_per_rev(bd: Backdoor, wheel: str, turns: int) -> float | None:
 
         if counted == 0:
             print(f"  !! Zero ticks. The {wheel} encoder is not being read.")
+            print("  Fix the encoder connection, then try this wheel again.")
+            continue
         elif counted < 0:
             print("  !! Negative. The wheel was turned BACKWARD relative to")
             print("     forward travel. Turn it the other way and retry.")
+            continue
         if abs(crosstalk) > abs(counted) * 0.05 and abs(crosstalk) > 20:
             print(f"  !! The {other} counter also moved by {crosstalk} ticks.")
             print(f"     Either the {other} wheel turned too, or the encoders are")
@@ -886,17 +913,38 @@ def collect_geometry(bd: Backdoor, args, res: FloorResults) -> bool:
     print("\n" + "-" * 68)
     print("STEP 2 of 4 -- how many ticks in one wheel turn")
     print("-" * 68)
-    print("The rover cannot know this, so we measure it by hand. You turn each")
-    print(f"wheel {args.turns} full turns; the tool zeroes the counter, reads it")
-    print("back and does the arithmetic.")
+    print("Accept the stored value for each wheel, or remeasure it by turning")
+    print(f"that wheel {args.turns} full turns. The tool zeroes the counter, reads")
+    print("it back and does the arithmetic.")
     print("\nKeep the rover raised for this step.")
 
-    left = measure_ticks_per_rev(bd, "left", args.turns)
-    if left is None:
+    if res.ticks_per_rev is None:
+        current_left, current_right = DEFAULT_TICKS_PER_REV
+    else:
+        current_left, current_right = res.ticks_per_rev
+
+    accept = accept_current("left ticks_per_rev", current_left)
+    if accept is None:
         return False
-    right = measure_ticks_per_rev(bd, "right", args.turns)
-    if right is None:
+    if accept:
+        left = current_left
+    else:
+        measured = measure_ticks_per_rev(bd, "left", args.turns)
+        if measured is None:
+            return False
+        left = measured
+
+    accept = accept_current("right ticks_per_rev", current_right)
+    if accept is None:
         return False
+    if accept:
+        right = current_right
+    else:
+        measured = measure_ticks_per_rev(bd, "right", args.turns)
+        if measured is None:
+            return False
+        right = measured
+
     res.ticks_per_rev = (left, right)
 
     spread = abs(left - right) / max(abs(left), abs(right), 1.0)
@@ -913,9 +961,17 @@ def collect_geometry(bd: Backdoor, args, res: FloorResults) -> bool:
     print("-" * 68)
     print("Measure across the wheel, through the centre, at the height where it")
     print("touches the floor. Millimetres.")
-    diameter = ask_float("Wheel diameter in mm")
-    if diameter is None:
+    current_diameter = res.wheel_diameter_mm or DEFAULT_WHEEL_DIAMETER_MM
+    accept = accept_current("wheel_diameter_mm", current_diameter)
+    if accept is None:
         return False
+    if accept:
+        diameter = current_diameter
+    else:
+        measured = ask_float("Wheel diameter in mm")
+        if measured is None:
+            return False
+        diameter = measured
     res.wheel_diameter_mm = diameter
 
     circumference_mm = math.pi * diameter
@@ -939,6 +995,10 @@ def creep_to_ticks(bd: Backdoor, args, res: FloorResults,
     tape measures whatever actually happened, so the target is just "roll
     about this far", not a quantity to hit precisely.
     """
+    if res.seed_ticks_per_m is None:
+        print("\n    Cannot roll: ticks-per-metre seed was not measured.")
+        return False
+
     bd.request("enc reset")
     started = time.monotonic()
     left = right = 0
@@ -1030,7 +1090,9 @@ def report_floor(res: FloorResults, args) -> None:
     print("FLOOR CALIBRATION RESULT")
     print("=" * 68)
 
-    if not res.ticks_per_m:
+    if (res.ticks_per_m is None or res.seed_ticks_per_m is None or
+            res.ticks_per_rev is None or res.wheel_diameter_mm is None or
+            res.distance_mm is None):
         print("\nNothing measured.")
         return
 
@@ -1076,8 +1138,8 @@ def calibrate_floor(bd: Backdoor, args) -> int:
     print("=" * 68)
     print("Four steps, and the tool will walk you through each one:")
     print("  1. Check both wheels turn the right way.")
-    print(f"  2. Turn each wheel {args.turns} times by hand, to count ticks per turn.")
-    print("  3. Measure the wheel diameter.")
+    print("  2. Accept the stored ticks-per-turn values, or measure them by hand.")
+    print("  3. Accept the stored wheel diameter, or measure it.")
     print("  4. Let the rover drive about a metre, then measure how far it went.")
     print("\nSteps 1-3 need the rover RAISED, wheels off the floor.")
     print("Step 4 needs it back down on the floor.")
