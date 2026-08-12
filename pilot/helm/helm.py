@@ -34,11 +34,17 @@ import threading
 import time
 from datetime import datetime
 
+try:
+    import readline as _readline  # Enables editing/history for input() on Unix.
+except ImportError:
+    pass
+
 # Runnable from pilot/ as `python3 -m helm` or `python3 helm/helm.py`.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cockpit.api import Cockpit                              # noqa: E402
-from cockpit.errors import CockpitError, CockpitNack         # noqa: E402
+from cockpit.errors import (CockpitError, CockpitNack,       # noqa: E402
+                            CockpitTimeout)
 from cockpit.events import (Event, FaultRaised, StateChanged,  # noqa: E402
                             TacticalState)
 if __package__:
@@ -76,7 +82,17 @@ class Helm:
 
     def start(self) -> None:
         self._cockpit.on_event(self._on_event)
-        self._cockpit.ping()
+        deadline = time.monotonic() + presets.AIRFRAME_STARTUP_TIMEOUT_S
+        while True:
+            try:
+                self._cockpit.ping()
+                break
+            except CockpitTimeout:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.0:
+                    raise
+                time.sleep(min(presets.AIRFRAME_STARTUP_RETRY_PERIOD_S,
+                               remaining))
         v = self._cockpit.version()
         self._geometry = self._cockpit.geometry()
         self._state = self._cockpit.state()

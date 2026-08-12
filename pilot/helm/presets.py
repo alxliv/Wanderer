@@ -27,6 +27,8 @@ OVERSHOOT_COMP_DEG = 2.0
 # 750 ms deadman), and 'ping' at the idle period otherwise.
 STREAM_PERIOD_S = 0.1
 IDLE_PING_PERIOD_S = 0.25
+AIRFRAME_STARTUP_TIMEOUT_S = 3.0
+AIRFRAME_STARTUP_RETRY_PERIOD_S = 0.1
 
 # Where airframe events and helm notices are appended (second window:
 #   tail -f ~/wanderer/events.log ).
