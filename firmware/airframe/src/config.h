@@ -30,6 +30,15 @@
 #define MOTOR_LEFT_SIGN    1
 #define MOTOR_RIGHT_SIGN   1
 
+/* Motor DEADBAND */
+/* Measured 2026-08-12 with tools/backdoor.py, wheels
+     raised and UNLOADED -- see the caveat below. */
+#define MOTOR_DEADBAND_LEFT  55
+#define MOTOR_DEADBAND_RIGHT 35
+/* Lowest duty at which BOTH wheels reliably turn: 65. Commands
+     below this move nothing; feed-forward past it or refuse them. */
+
+
 /* ---- Quadrature encoders (3.3 V logic; decoded via PIO) ----
  * Each encoder uses two CONSECUTIVE GPIO (A on base pin, B on base+1) so a
  * single PIO state machine can read both channels.
@@ -75,6 +84,6 @@
 
 /* ---- Firmware version (reported in INFO registers) ---- */
 #define FW_VERSION_MAJOR  0
-#define FW_VERSION_MINOR  3
+#define FW_VERSION_MINOR  4
 
 #endif /* WANDERER_CONFIG_H */

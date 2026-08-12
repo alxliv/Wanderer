@@ -384,7 +384,7 @@ def ask_yes_no(question: str) -> bool | None:
     return None
 
 
-def check_rotation(bd: Backdoor, args, res: Results) -> bool:
+def check_rotation(bd: Backdoor, args, res: Results, header: str | None = None) -> bool:
     """Phase 0. Turn each wheel alone and have the operator confirm it would
     push the vehicle toward bearing 0.
 
@@ -396,9 +396,11 @@ def check_rotation(bd: Backdoor, args, res: Results) -> bool:
     would go -- so an operator's eye is the only available instrument.
 
     Returns False if a wheel is reversed or the operator bails, in which case
-    nothing further should be measured.
+    nothing further should be measured. `header` lets a caller with its own
+    step numbering -- the floor run counts to 4, not 3 -- suppress this one.
     """
-    print("\n[0/3] wheel rotation direction (operator confirms)")
+    if header:
+        print(header)
     print("  Body frame: bearing 0 = straight ahead from the driver seat.")
     print("  Watch ONE wheel at a time and answer for that wheel only.")
 
@@ -730,7 +732,8 @@ def calibrate(bd: Backdoor, args) -> int:
             print("      really does drive the vehicle toward bearing 0.")
             proceed = True
         else:
-            proceed = check_rotation(bd, args, res)
+            proceed = check_rotation(
+                bd, args, res, "\n[0/3] wheel rotation direction (operator confirms)")
         if proceed:
             check_wiring(bd, args, res)
             if not res.swapped:
@@ -940,7 +943,9 @@ def creep_to_ticks(bd: Backdoor, args, res: FloorResults,
     started = time.monotonic()
     left = right = 0
 
-    for pulse in range(1, args.roll_max_pulses + 1):
+    # Not named `pulse`: that is the module-level measurement primitive, and
+    # shadowing it here would break any later call added inside this loop.
+    for n in range(1, args.roll_max_pulses + 1):
         bd.wiggle(args.roll_duty, args.roll_duty, args.roll_pulse_ms)
         bd.await_event("!wiggle_done", timeout=args.roll_pulse_ms / 1000.0 + 4.0)
         time.sleep(0.15)
@@ -950,10 +955,10 @@ def creep_to_ticks(bd: Backdoor, args, res: FloorResults,
         mean = (left + right) / 2.0
         mm = mean / res.seed_ticks_per_m * 1000.0
         speed = mm / elapsed if elapsed > 0 else 0.0
-        print(f"    pulse {pulse:>2}:  L{left:>7} R{right:>7}"
+        print(f"    pulse {n:>2}:  L{left:>7} R{right:>7}"
               f"   ~{mm:>6.0f} mm   ~{speed:>5.0f} mm/s")
 
-        if pulse == 1 and abs(mean) < 10:
+        if n == 1 and abs(mean) < 10:
             print("\n    !! No movement. On the floor the wheels carry the chassis,")
             print("       so breakaway is higher than the raised-bench figure.")
             print(f"       Raise --roll-duty above {args.roll_duty} and retry.")
@@ -1081,8 +1086,7 @@ def calibrate_floor(bd: Backdoor, args) -> int:
     if not wait_enter("Press ENTER to begin."):
         return 1
 
-    bd.ver()
-    apply_limits(bd, args)
+    # main() has already read `ver` and applied the board's rails to args.
     if not acquire_dev(bd):
         return 1
 
@@ -1183,11 +1187,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description="Wanderer airframe backdoor client and motor calibration.")
     ap.add_argument("--port", help="serial port (default: autodetect the Pico)")
-    ap.add_argument("--calibrate", action="store_true",
-                    help="raised-wheel calibration: rotation, encoders, deadband")
-    ap.add_argument("--calibrate-floor", action="store_true",
-                    help="guided ticks-per-metre measurement. Asks for "
-                         "everything it needs; bring a tape measure.")
+    # Exclusive: each run is one bench procedure. Asking for both is a mistake
+    # worth an error rather than silently running whichever is checked first.
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--calibrate", action="store_true",
+                      help="raised-wheel calibration: rotation, encoders, deadband")
+    mode.add_argument("--calibrate-floor", action="store_true",
+                      help="guided ticks-per-metre measurement. Asks for "
+                           "everything it needs; bring a tape measure.")
     ap.add_argument("--verbose", "-v", action="store_true", help="echo the wire traffic")
     ap.add_argument("--yes", action="store_true",
                     help="skip the wheels-off-the-ground confirmation")
@@ -1247,6 +1254,8 @@ def main() -> int:
         apply_limits(bd, args)
         if args.calibrate:
             return calibrate(bd, args)
+        if args.calibrate_floor:
+            return calibrate_floor(bd, args)
         acquire_dev(bd)
         return console(bd)
     except KeyboardInterrupt:
