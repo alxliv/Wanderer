@@ -34,14 +34,17 @@ import threading
 import time
 from datetime import datetime
 
-# Runnable as `python3 -m helm` from pilot/, like the tests.
+# Runnable from pilot/ as `python3 -m helm` or `python3 helm/helm.py`.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cockpit.api import Cockpit                              # noqa: E402
 from cockpit.errors import CockpitError, CockpitNack         # noqa: E402
 from cockpit.events import (Event, FaultRaised, StateChanged,  # noqa: E402
                             TacticalState)
-from helm import presets                                     # noqa: E402
+if __package__:
+    from . import presets                                    # noqa: E402
+else:
+    import presets                                           # noqa: E402
 
 from cockpit.uart_link import FAULT_NAMES                    # noqa: E402
 
