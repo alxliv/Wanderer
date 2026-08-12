@@ -39,6 +39,8 @@ OP_GET_STATE = "get_state"
 OP_GET_ODOMETRY = "get_odometry"
 OP_GET_VERSION = "get_version"
 OP_GET_GEOMETRY = "get_geometry"
+OP_PROC = "proc"
+OP_ABORT = "abort"
 
 
 @dataclass(frozen=True)

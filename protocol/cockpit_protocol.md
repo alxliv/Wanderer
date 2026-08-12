@@ -39,10 +39,10 @@ wins — fix the code (see §11 for the known deltas).
   `#` telemetry class on this link. The Pilot pulls state and odometry by query
   at its own cadence; the high-rate broadcast is the transponder's job (arch
   §3a), not the cockpit's.
-- **The vocabulary is the tiers.** Tier 1 (control surface) plus housekeeping is
-  specified now — exactly the op set of `pilot/cockpit/link.py`. Tier 2
-  (procedures) and Tier 3 (reflex configuration) have their syntax *reserved*
-  (§10) but not designed.
+- **The vocabulary is the tiers.** Tier 1 (control surface), housekeeping, and
+  the Tier 2 relative-turn procedure are specified now — exactly the op set of
+  `pilot/cockpit/link.py`. Other Tier 2 procedures and Tier 3 reflex
+  configuration remain reserved (§10).
 - **SI on the wire.** Meters per second, radians per second, plain decimal
   numbers. The wire is machine↔machine; there is no int16/mm-per-s legacy to
   carry over from the RF protocol.
@@ -138,6 +138,8 @@ One wire verb per `OP_*` constant in `pilot/cockpit/link.py`, same spelling:
 | `get_odometry`| —                             | `lt=<int> rt=<int> vl=<m/s> vr=<m/s>` | —                    |
 | `get_version` | —                             | `fw=<major>.<minor>`               | —                       |
 | `get_geometry`| —                             | `tpm=<ticks/m> track=<m>`          | —                       |
+| `proc`        | `turn <angle_rad> <linear_m_s>` | `name=turn lin=<m/s> timeout=<s>` | `not_armed`, `bad_args` |
+| `abort`       | —                             | —                                  | —                       |
 
 `get_geometry` reports the drivetrain geometry the airframe itself uses:
 `tpm` — encoder ticks per meter of wheel travel (one number; how the firmware
@@ -152,6 +154,22 @@ decimals; like every query it works in all states.
 Field conventions follow the Base protocol: FSM states and fault codes by
 **name** (`SAFE`, `ACTIVE`, `FALLBACK`, `FAULT`; `ESTOP`, ...), booleans `0`/`1`,
 new fields may be appended at any time without a protocol revision.
+
+### Firmware-owned relative turn
+
+`proc turn <angle_rad> <linear_m_s>` starts a nonblocking encoder-closed turn.
+Angles use the robotics convention: positive is counterclockwise. The firmware
+chooses turn rate, overshoot compensation, and the maximum linear speed during
+the maneuver. `lin` reports the accepted signed linear speed; `timeout` is the
+firmware's maximum procedure duration so a client can bound its wait.
+
+The procedure records wheel ticks at acceptance and closes heading using the
+airframe's own `ticks_per_meter` and `track` calibration. On completion it
+removes angular velocity and restores straight motion at `lin`. `abort` does
+the same but reports an aborted outcome. A `drive` received while the turn is
+active is refused with `busy`; `stop`, `disarm`, and `estop` preempt the turn.
+Commander silence still enters FALLBACK and aborts the procedure without
+restoring motion.
 
 ### `drive` beyond what the vehicle can deliver
 
@@ -273,7 +291,7 @@ for hardware faults (overcurrent, tilt) that may still be present.
 | `fault_latched`  | Refused while FAULT is latched                     |
 | `no_fault`       | `clear_fault` with nothing latched                 |
 | `fault_persists` | Fault condition still present; latch kept          |
-| `busy`           | *Reserved* for Tier 2 procedure arbitration        |
+| `busy`           | Tier 1 `drive` attempted while a procedure is active |
 
 New reasons may be added; a client treats an unknown reason as a generic NACK.
 
@@ -285,9 +303,13 @@ New reasons may be added; a client treats an unknown reason as a generic NACK.
 |--------------|---------------------------------|------------------------------------------|
 | state change | `!state from=<NAME> to=<NAME>`  | Every FSM transition, whatever caused it (command, deadman, reflex, backdoor) |
 | fault        | `!fault code=<NAME>`            | A fault latched; accompanies the transition to FAULT |
+| procedure    | `!proc name=turn outcome=<OUTCOME> [reason=<REASON>]` | Turn completed or ended |
 
 Fault code registry (grows with Tier 3): `ESTOP`. Wire names map to the
 integer codes of `events.FaultRaised` in the link implementation.
+
+Procedure outcomes are `DONE`, `ABORTED`, and `SUPERSEDED`. Current reasons
+are `command`, `stop`, `disarm`, `estop`, `deadman`, `state`, and `timeout`.
 
 Events fire for *every* cause, including transitions the Pilot itself
 commanded — the event stream is a complete, self-sufficient record of the FSM.
@@ -385,14 +407,14 @@ spec, not this one.
 
 ---
 
-## 10. Reserved — Tiers 2 and 3, debug surface
+## 10. Reserved — further Tier 2, Tier 3, and debug surface
 
 Syntax pre-reserved so today's parsers skip it cleanly; semantics deliberately
 not designed yet (arch §5, §7):
 
-- **Tier 2 procedures:** `proc <name> [arg ...]` to engage, `abort` to abort.
-  Outcome event: `!proc name=<n> outcome=DONE|ABORTED|SUPERSEDED [reason=<r>]`.
-  Arbitration between a procedure and the Tier 1 stream will define `busy`.
+- **Further Tier 2 procedures:** new names may extend `proc <name> [arg ...]`.
+  Relative turn and its arbitration are defined in §3; other procedures are
+  not yet designed.
 - **Tier 3 reflexes:** `cfg <reflex> [key=value ...]` to enable/threshold;
   fire event `!reflex name=<n> [action=<a>]`.
 - **Debug/raw surface:** `raw <vL> <vR>` — the open-loop per-wheel bench

@@ -68,6 +68,14 @@ class DriveApplied:
     limited: bool
 
 
+@dataclass(frozen=True)
+class TurnStarted:
+    """Accepted linear speed for a firmware-owned relative turn."""
+
+    linear_m_s: float
+    timeout_s: float
+
+
 class Cockpit:
     """Blocking command interface and event callbacks over one link.
 
@@ -193,6 +201,21 @@ class Cockpit:
     def stop(self) -> None:
         """Set velocity to zero while remaining ACTIVE."""
         self._execute(_link.OP_STOP)
+
+    def start_turn(self, angle_rad: float, linear_m_s: float) -> TurnStarted:
+        """Start a firmware-owned relative turn and return immediately.
+
+        Completion or cancellation arrives as a ``ProcedureFinished`` event.
+        Positive angles are counterclockwise, matching the wire convention.
+        """
+        reply = self._execute(_link.OP_PROC, angle_rad=float(angle_rad),
+                              linear_m_s=float(linear_m_s))
+        return TurnStarted(linear_m_s=reply.values["linear_m_s"],
+                   timeout_s=reply.values["timeout_s"])
+
+    def abort(self) -> None:
+        """Abort an active firmware procedure; harmless when none is active."""
+        self._execute(_link.OP_ABORT)
 
     # Queries
 

@@ -50,6 +50,11 @@ class WireVectorsTest(unittest.TestCase):
                     got = wire.format_request(op, {
                         "linear_m_s": float(lin),
                         "angular_rad_s": float(ang)})
+                elif fields[0] == "proc":
+                    op, angle, linear, expected = fields
+                    got = wire.format_request(op, {
+                        "angle_rad": float(angle),
+                        "linear_m_s": float(linear)})
                 else:
                     op, expected = fields
                     got = wire.format_request(op)
@@ -76,6 +81,9 @@ class WireVectorsTest(unittest.TestCase):
                                      (rest[0], rest[1]))
                 elif kind == "fault":
                     self.assertEqual(d.code, rest[0])
+                elif kind == "proc":
+                    self.assertEqual((d.name, d.outcome, d.reason),
+                                     (rest[0], rest[1], rest[2]))
                 elif kind == "log":
                     self.assertEqual(d.text, rest[0])
                 elif kind == "relay":

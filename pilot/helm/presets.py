@@ -9,17 +9,6 @@ business (it scales over-limit drive requests itself).
 # Initial linear speed setting, m/s. Selecting a speed does not start motion.
 DEFAULT_SPEED = 0.1
 
-# 'turn <deg>' maneuver: rotation rate used, and the speed cap applied
-# while turning (current speed above the cap is reduced to it and NOT
-# restored afterwards — you resume at the slowed speed).
-TURN_RATE_DPS = 30.0
-TURN_SPEED = 0.2
-
-# The placeholder turn loop commands rotation-stop this many degrees early
-# to absorb poll latency and coast. Tune on the bench until 'turn 90'
-# actually lands near 90.
-OVERSHOOT_COMP_DEG = 2.0
-
 # Streaming: the helm holds the latched {speed, bank} setpoint true by
 # sending 'drive' at this period while engaged (well inside the airframe's
 # 750 ms deadman), and 'ping' at the idle period otherwise.

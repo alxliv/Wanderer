@@ -10,13 +10,15 @@ and an executable statement of what the real UART link + firmware must do.
 motion dynamics, are what this sim pins down.)
 """
 
+import math
 import threading
 import time
 from typing import Callable, Optional
 
 from . import link as _link
 from .errors import CockpitLinkError, CockpitNack
-from .events import Event, FaultRaised, StateChanged, TacticalState
+from .events import (Event, FaultRaised, ProcedureFinished, StateChanged,
+                     TacticalState)
 from .link import CockpitLink, Reply, Request
 
 FAULT_ESTOP = 1
@@ -27,6 +29,9 @@ TICK_PERIOD_S = 0.02  # 50 Hz FSM tick, plenty for liveness resolution
 # TRACK_WIDTH_M / 2, and DEFAULT_MAX_SPEED_MM_S / 1000.
 HALF_TRACK_M = 0.0975
 MAX_WHEEL_M_S = 0.6
+TURN_RATE_RAD_S = 0.5235988
+TURN_OVERSHOOT_RAD = 0.0349066
+TURN_LINEAR_LIMIT_M_S = 0.2
 
 
 class SimulatedCockpitLink(CockpitLink):
@@ -49,6 +54,12 @@ class SimulatedCockpitLink(CockpitLink):
         self._left_ticks = 0.0
         self._right_ticks = 0.0
         self._last_tick_time = 0.0
+        self._turn_active = False
+        self._turn_angle = 0.0
+        self._turn_linear = 0.0
+        self._turn_start_left = 0.0
+        self._turn_start_right = 0.0
+        self._turn_deadline = 0.0
 
     # ---- CockpitLink ----------------------------------------------------
 
@@ -93,11 +104,13 @@ class SimulatedCockpitLink(CockpitLink):
         if op == _link.OP_DISARM:
             if self._state == TacticalState.FAULT:
                 raise CockpitNack("fault_latched", "clear the fault first")
+            self._finish_turn("ABORTED", "disarm", restore=False)
             self._enter(TacticalState.SAFE)
             return Reply()
         if op == _link.OP_ESTOP:
             if self._state == TacticalState.FAULT:
                 return Reply()  # re-raise: first cause preserved, no events
+            self._finish_turn("ABORTED", "estop", restore=False)
             self._fault_code = FAULT_ESTOP
             self._emit(FaultRaised(code=FAULT_ESTOP))  # `!fault` before `!state`
             self._enter(TacticalState.FAULT)
@@ -109,6 +122,8 @@ class SimulatedCockpitLink(CockpitLink):
             self._enter(TacticalState.SAFE)
             return Reply()
         if op == _link.OP_DRIVE:
+            if self._turn_active:
+                raise CockpitNack("busy", "procedure turn active")
             # A fresh drive is the ONLY thing that resumes from FALLBACK.
             if self._state == TacticalState.FALLBACK:
                 self._enter(TacticalState.ACTIVE)
@@ -130,7 +145,14 @@ class SimulatedCockpitLink(CockpitLink):
         if op == _link.OP_STOP:
             if self._state != TacticalState.ACTIVE:
                 raise CockpitNack("not_armed", f"state is {self._state.name}")
+            self._finish_turn("ABORTED", "stop", restore=False)
             self._v_left = self._v_right = 0.0
+            return Reply()
+        if op == _link.OP_PROC:
+            return self._start_turn(float(p["angle_rad"]),
+                                    float(p["linear_m_s"]))
+        if op == _link.OP_ABORT:
+            self._finish_turn("ABORTED", "command", restore=True)
             return Reply()
         if op == _link.OP_GET_STATE:
             return Reply({"state": int(self._state)})
@@ -169,6 +191,59 @@ class SimulatedCockpitLink(CockpitLink):
     def _moving(self) -> bool:
         return self._state == TacticalState.ACTIVE
 
+    def _start_turn(self, angle: float, linear: float) -> Reply:
+        if not math.isfinite(angle) or not math.isfinite(linear) or angle == 0.0:
+            raise CockpitNack("bad_args", "expected finite nonzero angle")
+        if self._state == TacticalState.FALLBACK:
+            self._enter(TacticalState.ACTIVE)
+        if self._state != TacticalState.ACTIVE:
+            raise CockpitNack("not_armed", f"state is {self._state.name}")
+        if self._turn_active:
+            self._finish_turn("SUPERSEDED", restore=True)
+        linear = max(-TURN_LINEAR_LIMIT_M_S,
+                     min(TURN_LINEAR_LIMIT_M_S, linear))
+        omega = TURN_RATE_RAD_S if angle > 0.0 else -TURN_RATE_RAD_S
+        left = linear - omega * self._half_track
+        right = linear + omega * self._half_track
+        scale = self._drive_scale(left, right)
+        self._v_left = left * scale
+        self._v_right = right * scale
+        self._turn_active = True
+        self._turn_angle = angle
+        self._turn_linear = linear
+        self._turn_start_left = self._left_ticks
+        self._turn_start_right = self._right_ticks
+        timeout_s = abs(angle) / (TURN_RATE_RAD_S * scale) + 3.0
+        self._turn_deadline = time.monotonic() + timeout_s
+        return Reply({"linear_m_s": linear, "timeout_s": timeout_s})
+
+    def _finish_turn(self, outcome: str, reason: str = "", *,
+                     restore: bool) -> None:
+        if not self._turn_active:
+            return
+        self._turn_active = False
+        if restore and self._state == TacticalState.ACTIVE:
+            self._v_left = self._v_right = self._turn_linear
+        self._emit(ProcedureFinished(name="turn", outcome=outcome,
+                                     reason=reason))
+
+    def _tick_turn(self, now: float) -> None:
+        if not self._turn_active:
+            return
+        if self._state != TacticalState.ACTIVE:
+            reason = "deadman" if self._state == TacticalState.FALLBACK else "state"
+            self._finish_turn("ABORTED", reason, restore=False)
+            return
+        left_m = (self._left_ticks - self._turn_start_left) / TICKS_PER_M
+        right_m = (self._right_ticks - self._turn_start_right) / TICKS_PER_M
+        heading = (right_m - left_m) / (2.0 * self._half_track)
+        progress = heading if self._turn_angle > 0.0 else -heading
+        target = max(abs(self._turn_angle) - TURN_OVERSHOOT_RAD, 0.0)
+        if progress >= target:
+            self._finish_turn("DONE", restore=True)
+        elif now >= self._turn_deadline:
+            self._finish_turn("ABORTED", "timeout", restore=True)
+
     def _enter(self, new: TacticalState) -> None:
         if new == self._state:
             return
@@ -197,3 +272,4 @@ class SimulatedCockpitLink(CockpitLink):
                 if (self._state == TacticalState.ACTIVE
                         and now - self._last_seen > self._liveness_timeout):
                     self._enter(TacticalState.FALLBACK)
+                self._tick_turn(now)

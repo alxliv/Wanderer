@@ -11,9 +11,9 @@ import queue
 import time
 import unittest
 
-from cockpit import (Cockpit, CockpitNack, FaultRaised, StateChanged,
-                     TacticalState)
-from cockpit.sim import SimulatedCockpitLink
+from cockpit import (Cockpit, CockpitNack, FaultRaised, ProcedureFinished,
+                     StateChanged, TacticalState)
+from cockpit.sim import HALF_TRACK_M, MAX_WHEEL_M_S, SimulatedCockpitLink
 
 LIVENESS_S = 0.15  # short deadman so tests run fast
 
@@ -94,6 +94,21 @@ class CockpitApiTest(unittest.TestCase):
         self.assertEqual(self.cockpit.state(), TacticalState.ACTIVE)
         odo = self.cockpit.odometry()
         self.assertEqual(odo.left_m_s, 0.0)
+
+    def test_firmware_turn_completes_and_restores_linear_motion(self):
+        self.cockpit.arm()
+        started = self.cockpit.start_turn(0.1, 0.3)
+        self.assertAlmostEqual(started.linear_m_s, 0.2)
+
+        outcome = wait_for(
+            self.events,
+            lambda event: isinstance(event, ProcedureFinished),
+            timeout=1.0)
+        self.assertEqual(outcome.name, "turn")
+        self.assertEqual(outcome.outcome, "DONE")
+        odo = self.cockpit.odometry()
+        self.assertAlmostEqual(odo.left_m_s, 0.2)
+        self.assertAlmostEqual(odo.right_m_s, 0.2)
 
 
 class SpecMatrixTest(unittest.TestCase):
@@ -238,7 +253,7 @@ class DriveLimitTest(unittest.TestCase):
 
     A drive past what the wheels can deliver is scaled, never refused, and
     both wheels scale by ONE factor so the commanded turn radius survives.
-    Sim geometry is the rover's: half-track 0.15 m, wheel limit 0.6 m/s.
+    Sim geometry mirrors the rover firmware calibration.
     """
 
     def setUp(self):
@@ -262,31 +277,36 @@ class DriveLimitTest(unittest.TestCase):
         self.assertAlmostEqual(applied.linear_m_s, 0.6)
 
     def test_over_limit_scales_the_pair(self):
-        # left 0.35, right 0.65: only the RIGHT wheel is over 0.6, but both
-        # scale by 0.6/0.65 -- clipping right alone would bend the arc.
-        applied = self.cockpit.drive(0.5, 1.0)
+        linear, angular = 0.55, 1.0
+        peak = linear + angular * HALF_TRACK_M
+        scale = MAX_WHEEL_M_S / peak
+        applied = self.cockpit.drive(linear, angular)
         self.assertTrue(applied.limited)
-        self.assertAlmostEqual(applied.linear_m_s, 0.5 * 0.6 / 0.65)
-        self.assertAlmostEqual(applied.angular_rad_s, 1.0 * 0.6 / 0.65)
+        self.assertAlmostEqual(applied.linear_m_s, linear * scale)
+        self.assertAlmostEqual(applied.angular_rad_s, angular * scale)
 
     def test_turn_radius_survives_limiting(self):
         """The whole point: give up speed, never the commanded arc."""
-        applied = self.cockpit.drive(0.5, 1.0)
+        applied = self.cockpit.drive(0.55, 1.0)
         self.assertAlmostEqual(applied.linear_m_s / applied.angular_rad_s,
-                               0.5 / 1.0)   # 0.5 m radius, as requested
+                       0.55 / 1.0)
 
     def test_scaled_command_reaches_the_wheels(self):
-        self.cockpit.drive(0.5, 1.0)
+        linear, angular = 0.55, 1.0
+        left = linear - angular * HALF_TRACK_M
+        right = linear + angular * HALF_TRACK_M
+        scale = MAX_WHEEL_M_S / right
+        self.cockpit.drive(linear, angular)
         odom = self.cockpit.odometry()
-        self.assertAlmostEqual(odom.right_m_s, 0.6)   # sits on the limit
-        self.assertAlmostEqual(odom.left_m_s, 0.35 * 0.6 / 0.65)
+        self.assertAlmostEqual(odom.right_m_s, right * scale)
+        self.assertAlmostEqual(odom.left_m_s, left * scale)
 
     def test_pure_spin_saturates_symmetrically(self):
-        # The fastest this geometry can yaw is 2 * 0.6 / 0.30 = 4 rad/s.
+        max_angular = MAX_WHEEL_M_S / HALF_TRACK_M
         applied = self.cockpit.drive(0.0, 10.0)
         self.assertTrue(applied.limited)
         self.assertAlmostEqual(applied.linear_m_s, 0.0)
-        self.assertAlmostEqual(applied.angular_rad_s, 4.0)
+        self.assertAlmostEqual(applied.angular_rad_s, max_angular)
         odom = self.cockpit.odometry()
         self.assertAlmostEqual(odom.left_m_s, -0.6)
         self.assertAlmostEqual(odom.right_m_s, 0.6)

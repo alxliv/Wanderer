@@ -44,9 +44,17 @@ void cockpit_init(cockpit_sink sink, uint8_t fw_major, uint8_t fw_minor,
 
 void cockpit_set_odometry_provider(cockpit_odom_fn fn);
 
+// Configure the firmware-owned relative turn procedure. All values are SI;
+// a non-positive turn rate leaves the procedure unavailable.
+void cockpit_set_turn_config(float rate_rad_s, float overshoot_rad,
+                             float linear_limit_m_s);
+
 // Future radio-modem hat: `^` payloads are handed here verbatim (spec
 // section 4). NULL (the default) drops them. Never refreshes the lease.
 void cockpit_set_relay_sink(cockpit_sink fn);
 
 // Pump one received byte. Dispatches when a full line has arrived.
 void cockpit_feed(char c, uint64_t now_us);
+
+// Advance active procedures after tac_tick() and odometry sampling.
+void cockpit_tick(uint64_t now_us);

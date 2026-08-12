@@ -21,7 +21,8 @@ from typing import Callable, Optional
 from . import link as _link
 from . import wire
 from .errors import CockpitLinkError, CockpitNack, CockpitTimeout
-from .events import Event, FaultRaised, StateChanged, TacticalState
+from .events import (Event, FaultRaised, ProcedureFinished, StateChanged,
+                     TacticalState)
 from .link import CockpitLink, Reply, Request
 
 # Wire fault names <-> the integer codes of events.FaultRaised (spec
@@ -45,6 +46,9 @@ def _decode(op: str, d: wire.Downlink) -> Reply:
     if op == _link.OP_GET_GEOMETRY:
         return Reply({"ticks_per_meter": float(f["tpm"]),
                       "track_m": float(f["track"])})
+    if op == _link.OP_PROC:
+        return Reply({"linear_m_s": float(f["lin"]),
+                      "timeout_s": float(f["timeout"])})
     if op == _link.OP_DRIVE and "lin" in f:
         # Applied pair present only when the request was scaled (spec s3).
         return Reply({"linear_m_s": float(f["lin"]),
@@ -178,6 +182,9 @@ class UartCockpitLink(CockpitLink):
                 pass  # unknown state name from newer firmware: skip (spec s2)
         elif d.kind == "fault" and self._sink is not None:
             self._sink(FaultRaised(code=FAULT_CODES.get(d.code, -1)))
+        elif d.kind == "proc" and self._sink is not None:
+            self._sink(ProcedureFinished(name=d.name, outcome=d.outcome,
+                                         reason=d.reason))
         elif d.kind == "log" and self._log_sink is not None:
             self._log_sink(d.text)
         elif d.kind == "relay" and self._relay_sink is not None:

@@ -121,6 +121,21 @@ static void run_request_vector(char *fields[], int n, const char *ctx)
         CHECK(fabsf(ang - want_ang) < 1e-3f, "angular round-trips", ctx);
         return;
     }
+    if (strcmp(fields[0], "proc") == 0 && n == 4) {
+        CHECK(count == 4, "proc turn has 3 args", ctx);
+        if (count != 4)
+            return;
+        CHECK(codec_token_eq(tok[0], "proc"), "verb", ctx);
+        CHECK(codec_token_eq(tok[1], "turn"), "procedure name", ctx);
+        float angle = 0, linear = 0;
+        CHECK(codec_parse_f32(tok[2], &angle), "angle parses", ctx);
+        CHECK(codec_parse_f32(tok[3], &linear), "linear parses", ctx);
+        CHECK(fabsf(angle - strtof(fields[1], NULL)) < 1e-6f,
+              "angle round-trips", ctx);
+        CHECK(fabsf(linear - strtof(fields[2], NULL)) < 1e-3f,
+              "linear round-trips", ctx);
+        return;
+    }
     // Bare verbs: one token, equal (case-insensitively) to the op name.
     CHECK(count == 1, "bare verb is one token", ctx);
     CHECK(count == 1 && codec_token_eq(tok[0], fields[0]), "verb matches op", ctx);

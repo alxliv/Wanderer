@@ -42,4 +42,13 @@ class FaultRaised(Event):
     code: int
 
 
+@dataclass(frozen=True)
+class ProcedureFinished(Event):
+    """A firmware-owned procedure reached a terminal outcome."""
+
+    name: str
+    outcome: str
+    reason: str = ""
+
+
 EventHandler = Callable[[Event], None]

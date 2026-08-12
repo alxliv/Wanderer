@@ -51,6 +51,14 @@ static void relay(const char *payload)
 // ---- helpers ---------------------------------------------------------------
 
 static uint64_t g_now = 1000000;   // virtual time, us
+static int32_t g_left_ticks, g_right_ticks;
+
+static void turn_odometry(int32_t *lt, int32_t *rt, float *vl, float *vr)
+{
+    *lt = g_left_ticks;
+    *rt = g_right_ticks;
+    *vl = *vr = 0.0f;
+}
 
 static void send(const char *line)
 {
@@ -65,9 +73,12 @@ static void fresh(void)
     // fw 0.3, 3831 ticks/m, half-track 0.15 m (0.30 m track), wheel limit
     // 0.6 m/s -- the rover's real geometry and DEFAULT_MAX_SPEED_MM_S.
     cockpit_init(sink, 0, 3, 3831.0f, 0.15f, 0.6f);
+    cockpit_set_turn_config(0.5235988f, 0.0349066f, 0.2f);
+    cockpit_set_odometry_provider(turn_odometry);
     out_clear();
     relay_count = 0;
     g_now = 1000000;
+    g_left_ticks = g_right_ticks = 0;
 }
 
 #define EXPECT(idx, want) CHECK(strcmp(out_line(idx), want) == 0, \
@@ -268,6 +279,43 @@ static void test_odometry_and_overflow(void)
     EXPECT(1, "=ok ping");   // clean line right after the overflow
 }
 
+static void test_turn_procedure(void)
+{
+    fresh();
+    send("arm");
+    out_clear();
+    send("proc turn 1.570796 0.100");
+    EXPECT(0, "=ok proc name=turn lin=0.100 timeout=6.000");
+        CHECK(tac_target_left() == 21 && tac_target_right() == 179,
+            "turn procedure owns curved wheel targets");
+
+        out_clear();
+        g_left_ticks = -883;
+        g_right_ticks = 883;
+        cockpit_tick(g_now + 3000000);
+        EXPECT(0, "!proc name=turn outcome=DONE");
+        CHECK(tac_target_left() == 100 && tac_target_right() == 100,
+            "completed turn restores straight linear motion");
+
+        out_clear();
+        send("proc turn -1.570796 -0.100");
+        out_clear();
+        send("abort");
+        EXPECT(0, "!proc name=turn outcome=ABORTED reason=command");
+        EXPECT(1, "=ok abort");
+        CHECK(tac_target_left() == -100 && tac_target_right() == -100,
+            "abort restores straight reverse motion");
+
+        out_clear();
+        send("proc turn 1.570796 0.000");
+        out_clear();
+        g_now += 800000;
+        tac_tick(g_now);
+        cockpit_tick(g_now);
+        EXPECT(0, "!state from=ACTIVE to=FALLBACK");
+        EXPECT(1, "!proc name=turn outcome=ABORTED reason=deadman");
+}
+
 int main(void)
 {
     test_handshake_and_motion();
@@ -276,6 +324,7 @@ int main(void)
     test_lease_rules();
     test_drive_saturation();
     test_odometry_and_overflow();
+    test_turn_procedure();
     if (failures == 0)
         printf("OK: cockpit handler wire-level tests pass\n");
     else

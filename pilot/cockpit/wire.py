@@ -21,6 +21,9 @@ def format_request(op: str, params: Optional[Dict[str, float]] = None) -> str:
     if op == "drive":
         return "drive {:.3f} {:.3f}".format(
             params["linear_m_s"], params["angular_rad_s"])
+    if op == "proc":
+        return "proc turn {:.6f} {:.3f}".format(
+            params["angle_rad"], params["linear_m_s"])
     if params:
         raise ValueError(f"op {op!r} takes no params on the wire")
     return op
@@ -30,7 +33,7 @@ def format_request(op: str, params: Optional[Dict[str, float]] = None) -> str:
 class Downlink:
     """One parsed airframe line.
 
-    kind: "ok" | "err" | "state" | "fault" | "log" | "relay" | "skip"
+    kind: "ok" | "err" | "state" | "fault" | "proc" | "log" | "relay" | "skip"
       ok:    verb, fields ({key: value strings})
       err:   verb, reason, detail
       state: from_state, to_state
@@ -47,6 +50,8 @@ class Downlink:
     from_state: str = ""
     to_state: str = ""
     code: str = ""
+    name: str = ""
+    outcome: str = ""
     text: str = ""
     payload: str = ""
 
@@ -86,6 +91,12 @@ def parse_downlink(line: str) -> Downlink:
             kv = _kv(tokens[1:])
             if "code" in kv:
                 return Downlink("fault", code=kv["code"])
+        if tokens and tokens[0] == "proc":
+            kv = _kv(tokens[1:])
+            if "name" in kv and "outcome" in kv:
+                return Downlink("proc", name=kv["name"],
+                                outcome=kv["outcome"],
+                                reason=kv.get("reason", ""))
         return Downlink("skip")
     if sigil == "*":
         return Downlink("log", text=rest)

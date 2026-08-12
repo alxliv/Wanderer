@@ -13,8 +13,7 @@ Vocabulary (no jargon; + is clockwise, - counterclockwise):
     f | b                             move forward | backward at selected speed
   bank <deg/s>                      rotate at this rate, hold until changed
   turn <deg>                        rotate BY this many degrees, then stop
-                                    rotating  [placeholder: closed from Linux
-                                    over odometry until firmware Tier 2 lands]
+                                    rotating (firmware procedure)
     s                                 stop movement and rotation
   state | odom | version | geometry queries
   help | quit
@@ -44,8 +43,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cockpit.api import Cockpit                              # noqa: E402
 from cockpit.errors import (CockpitError, CockpitNack,       # noqa: E402
                             CockpitTimeout)
-from cockpit.events import (Event, FaultRaised, StateChanged,  # noqa: E402
-                            TacticalState)
+from cockpit.events import (Event, FaultRaised, ProcedureFinished,  # noqa: E402
+                            StateChanged, TacticalState)
 if __package__:
     from . import presets                                    # noqa: E402
 else:
@@ -78,6 +77,8 @@ class Helm:
         self._geometry = None
         self._running = False
         self._streamer = None
+        self._turn_cv = threading.Condition()
+        self._turn_result = None
 
     # ---- lifecycle -------------------------------------------------------
 
@@ -166,6 +167,12 @@ class Helm:
                 self._engaged = False
         elif isinstance(event, FaultRaised):
             self._log(f"!fault {FAULT_NAMES.get(event.code, event.code)}")
+        elif isinstance(event, ProcedureFinished):
+            detail = f" reason={event.reason}" if event.reason else ""
+            self._log(f"!proc {event.name} {event.outcome}{detail}")
+            with self._turn_cv:
+                self._turn_result = event
+                self._turn_cv.notify_all()
         else:
             self._log(f"!{event}")
 
@@ -283,64 +290,55 @@ class Helm:
         """
         self._engaged = True
 
-    # ---- the turn maneuver (placeholder for firmware Tier 2) -------------
+    # ---- firmware-owned turn procedure -----------------------------------
 
     def _turn(self, deg: float) -> None:
         """Rotate BY `deg` degrees (+ clockwise), then stop rotating.
 
-        PLACEHOLDER implementation: closes the heading loop from Linux by
-        polling odometry -- exactly what the architecture forbids for real
-        operation (Linux jitter, UART in the loop). Acceptable on the bench
-        at TURN_SPEED/TURN_RATE only; replaced by the firmware Tier 2
-        `proc turn` in the next firmware milestone. Ctrl-C aborts the turn
-        (stops rotation) without leaving the console.
+        The Pico closes heading from encoder ticks. Helm pauses its Tier 1
+        drive stream, keeps the deadman alive with pings, and waits for the
+        procedure outcome. Ctrl-C asks the firmware to abort the turn.
         """
         if deg == 0.0:
             return
         with self._sp_lock:
-            if self._direction != 0 and self._speed > presets.TURN_SPEED:
-                self._speed = presets.TURN_SPEED
-                print(f"slowing to {self._speed:g} m/s for the turn "
-                      "(stays there after)")
-            self._bank_dps = math.copysign(presets.TURN_RATE_DPS, deg)
-        self._assert_intent()
-
-        target = max(abs(deg) - presets.OVERSHOOT_COMP_DEG, 0.0)
-        start = self._cockpit.odometry()
-        deadline = time.monotonic() + abs(deg) / presets.TURN_RATE_DPS + 3.0
-        print(f"turning {deg:g}\u00b0 [placeholder] ...", flush=True)
+            linear_m_s = self._linear_speed()
+        with self._turn_cv:
+            self._turn_result = None
+        self._engaged = False
         try:
-            while True:
-                time.sleep(0.05)
-                turned = self._heading_cw_deg(start)
-                # Progress in the commanded direction only.
-                progress = turned if deg > 0 else -turned
-                if progress >= target:
-                    break
-                if time.monotonic() > deadline:
-                    print("turn timed out (not rotating? check state/odom)")
-                    break
+            started = self._cockpit.start_turn(-math.radians(deg), linear_m_s)
+            with self._sp_lock:
+                if self._direction != 0:
+                    accepted_speed = abs(started.linear_m_s)
+                    if accepted_speed < self._speed:
+                        self._speed = accepted_speed
+                        print(f"slowing to {self._speed:g} m/s for the turn "
+                              "(stays there after)")
+            print(f"turning {deg:g}\u00b0 ...", flush=True)
+            deadline = time.monotonic() + started.timeout_s + 1.0
+            with self._turn_cv:
+                while self._turn_result is None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0.0:
+                        break
+                    self._turn_cv.wait(remaining)
+                result = self._turn_result
+            if result is None:
+                self._cockpit.abort()
+                print("turn outcome timed out")
+            elif result.outcome == "DONE":
+                print("turn complete")
+            else:
+                detail = f" ({result.reason})" if result.reason else ""
+                print(f"turn {result.outcome.lower()}{detail}")
         except KeyboardInterrupt:
             print("\nturn aborted")
+            self._cockpit.abort()
         finally:
             with self._sp_lock:
                 self._bank_dps = 0.0
-        # One more poll after rotation stop for the honest number.
-        time.sleep(2 * presets.STREAM_PERIOD_S)
-        print(f"turned {self._heading_cw_deg(start):+.1f}\u00b0")
-
-    def _heading_cw_deg(self, start) -> float:
-        """Heading change since `start`, degrees, clockwise-positive.
-
-        Differential odometry: theta_ccw = (right - left) / track, so
-        clockwise is (left - right) / track. Geometry comes from the
-        airframe (get_geometry), never from a pilot-side copy.
-        """
-        o = self._cockpit.odometry()
-        g = self._geometry
-        left_m = (o.left_ticks - start.left_ticks) / g.ticks_per_meter
-        right_m = (o.right_ticks - start.right_ticks) / g.ticks_per_meter
-        return math.degrees((left_m - right_m) / g.track_m)
+            self._engaged = self._state == TacticalState.ACTIVE
 
 
 def main(argv=None) -> int:

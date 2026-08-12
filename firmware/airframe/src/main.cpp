@@ -121,6 +121,8 @@ int main(void)
                  DEFAULT_TICKS_PER_METER, TRACK_WIDTH_M / 2.0f,
                  DEFAULT_MAX_SPEED_MM_S / 1000.0f);
     cockpit_set_odometry_provider(odometry_provider);
+    cockpit_set_turn_config(TURN_RATE_RAD_S, TURN_OVERSHOOT_RAD,
+                            TURN_LINEAR_LIMIT_M_S);
     // Relay sink deliberately not set: `^` payloads are dropped until the
     // RF modem hat lands (cockpit spec section 4).
 
@@ -174,6 +176,7 @@ int main(void)
 
             // FSM housekeeping: deadman and fallback ramp.
             tac_tick(t);
+            cockpit_tick(t);
 
             // Backdoor housekeeping BEFORE the mux: expires the wiggle
             // deadline and zeroes s_bd* on lease loss, so the decision below

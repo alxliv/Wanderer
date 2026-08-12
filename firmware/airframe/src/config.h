@@ -85,6 +85,11 @@
 /* ---- Vehicle geometry ---- */
 #define TRACK_WIDTH_M     0.195f /* wheel-to-wheel; calibrate on the rover */
 
+/* ---- Relative turn procedure ---- */
+#define TURN_RATE_RAD_S          0.5235988f /* 30 deg/s */
+#define TURN_OVERSHOOT_RAD       0.0349066f /* stop 2 deg early */
+#define TURN_LINEAR_LIMIT_M_S    0.2f
+
 /* ---- Control loop ---- */
 #define CONTROL_HZ        100   /* reflexive control-loop rate */
 
