@@ -40,14 +40,19 @@
 
 /* ---- Open-loop motor matching ----
  * Raised-wheel measurement at 250 permille for 3 s gave 4600 left ticks and
- * 5100 right ticks. Scale the faster right channel by 4600/5100 = 0.902.
+ * 5100 right ticks, giving the initial right gain of 0.902. Floor runs then
+ * bracketed straight travel: gain 902 gave 3859/4315 ticks and steered left;
+ * gain 805 gave 4044/3797 ticks and steered right. After normalization by
+ * 827.2 left and 825.2 right ticks/rev, their L/R ratios are 0.89216 and
+ * 1.06248. Linear interpolation to L/R=1 gives gain 840.58, rounded to 841.
+ * Lateral-error interpolation independently gives 842.81.
  * Derating the faster wheel, rather than boosting the slower one, preserves
  * the command path's configured duty ceilings.
  * Fixed-point per-mille avoids floating-point work in the control loop.
  * This is unloaded open-loop matching, not a substitute for wheel-speed PID.
  */
 #define MOTOR_LEFT_GAIN_PERMILLE   1000
-#define MOTOR_RIGHT_GAIN_PERMILLE   902
+#define MOTOR_RIGHT_GAIN_PERMILLE   841
 
 
 /* ---- Quadrature encoders (3.3 V logic; decoded via PIO) ----
@@ -84,7 +89,10 @@
 #define CONTROL_HZ        100   /* reflexive control-loop rate */
 
 /* ---- Tunable defaults ---- */
-#define DEFAULT_TICKS_PER_METER  10000.0f /* x4 edge count; calibrate */
+/* Floor-measured 2026-08-12: 3908 ticks over 1020 mm,
+     seeded from 826 ticks/rev and a 68 mm wheel. */
+#define DEFAULT_TICKS_PER_METER  3831.0f
+
 #define DEFAULT_PID_KP           0.5f
 #define DEFAULT_PID_KI           0.1f
 #define DEFAULT_PID_KD           0.0f
@@ -95,6 +103,6 @@
 
 /* ---- Firmware version (reported in INFO registers) ---- */
 #define FW_VERSION_MAJOR  0
-#define FW_VERSION_MINOR  5
+#define FW_VERSION_MINOR  6
 
 #endif /* WANDERER_CONFIG_H */
