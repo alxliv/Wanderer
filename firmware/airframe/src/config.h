@@ -38,6 +38,17 @@
 /* Lowest duty at which BOTH wheels reliably turn: 65. Commands
      below this move nothing; feed-forward past it or refuse them. */
 
+/* ---- Open-loop motor matching ----
+ * Raised-wheel measurement at 250 permille for 3 s gave 4600 left ticks and
+ * 5100 right ticks. Scale the faster right channel by 4600/5100 = 0.902.
+ * Derating the faster wheel, rather than boosting the slower one, preserves
+ * the command path's configured duty ceilings.
+ * Fixed-point per-mille avoids floating-point work in the control loop.
+ * This is unloaded open-loop matching, not a substitute for wheel-speed PID.
+ */
+#define MOTOR_LEFT_GAIN_PERMILLE   1000
+#define MOTOR_RIGHT_GAIN_PERMILLE   902
+
 
 /* ---- Quadrature encoders (3.3 V logic; decoded via PIO) ----
  * Each encoder uses two CONSECUTIVE GPIO (A on base pin, B on base+1) so a
@@ -84,6 +95,6 @@
 
 /* ---- Firmware version (reported in INFO registers) ---- */
 #define FW_VERSION_MAJOR  0
-#define FW_VERSION_MINOR  4
+#define FW_VERSION_MINOR  5
 
 #endif /* WANDERER_CONFIG_H */

@@ -71,11 +71,16 @@ void motors_set(int16_t left_command, int16_t right_command, uint16_t max_pwm) {
      * controller -- speaks one language: positive drives the vehicle toward
      * bearing 0. Nothing upstream needs to know how the motors are wired.
      */
+    const int16_t left_scaled = motor_command_apply_gain(
+        left_command, MOTOR_LEFT_GAIN_PERMILLE);
+    const int16_t right_scaled = motor_command_apply_gain(
+        right_command, MOTOR_RIGHT_GAIN_PERMILLE);
+
     apply_output(&left_motor,
-                 motor_output_from_command((int16_t)(MOTOR_LEFT_SIGN * left_command),
+                 motor_output_from_command((int16_t)(MOTOR_LEFT_SIGN * left_scaled),
                                            max_pwm));
     apply_output(&right_motor,
-                 motor_output_from_command((int16_t)(MOTOR_RIGHT_SIGN * right_command),
+                 motor_output_from_command((int16_t)(MOTOR_RIGHT_SIGN * right_scaled),
                                            max_pwm));
 }
 

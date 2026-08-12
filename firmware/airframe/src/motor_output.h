@@ -15,6 +15,9 @@ typedef struct {
     uint16_t duty;
 } motor_output_t;
 
+/* Apply a per-mille gain with symmetric rounding and clamp to full scale. */
+int16_t motor_command_apply_gain(int16_t command, uint16_t gain_permille);
+
 /*
  * Convert a signed per-mille command into an MDD10A DIR and PWM output.
  * Positive commands use DIR=0; negative commands use DIR=1.

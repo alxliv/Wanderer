@@ -24,6 +24,16 @@ static void expect_output(int16_t command, uint16_t limit,
 }
 
 int main(void) {
+    /* Per-wheel gain is fixed-point per-mille and symmetric by direction. */
+    assert(motor_command_apply_gain(250, 1109) == 277);
+    assert(motor_command_apply_gain(-250, 1109) == -277);
+    assert(motor_command_apply_gain(250, 902) == 226);
+    assert(motor_command_apply_gain(-250, 902) == -226);
+    assert(motor_command_apply_gain(250, 1000) == 250);
+    assert(motor_command_apply_gain(1000, 1109) == 1000);
+    assert(motor_command_apply_gain(-1000, 1109) == -1000);
+    assert(motor_command_apply_gain(250, 0) == 0);
+
     /* Zero command is a defined stop state. */
     expect_output(0, 1000, false, 0);
 
