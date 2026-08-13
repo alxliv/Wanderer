@@ -89,8 +89,8 @@
 #define TRACK_WIDTH_M     0.195f /* wheel-to-wheel; calibrate on the rover */
 
 /* ---- Relative turn procedure ---- */
-#define TURN_RATE_RAD_S          DEG2RAD(50) /* 45 deg/s */
-#define TURN_OVERSHOOT_RAD       DEG2RAD(1)  /* 0.017f stop 1 deg early */
+#define TURN_RATE_RAD_S          DEG2RAD(50) /* Degrees per second turn rate */
+#define TURN_OVERSHOOT_RAD       DEG2RAD(1)  /* stop that degree early */
 #define TURN_LINEAR_LIMIT_M_S    0.15f
 
 /* ---- Control loop ---- */

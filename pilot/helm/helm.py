@@ -146,9 +146,9 @@ class Helm:
                 self._log(f"[helm] stream error: {e}")
 
     def _omega(self) -> float:
-        # Captain: + is clockwise. Wire: + is counterclockwise (robotics
-        # convention). The helm negates here and NOWHERE else.
-        return -math.radians(self._bank_dps)
+        # Captain and cockpit protocol agree: + is a turn to the right
+        # (architecture 2a). Unit conversion only, no sign change.
+        return math.radians(self._bank_dps)
 
     def _linear_speed(self) -> float:
         return self._direction * self._speed

@@ -105,26 +105,51 @@ The frame is fixed to the vehicle and travels with it.
 |---|---|
 | **0°** | straight ahead |
 | **90°** | to the driver's right |
-| **180°** | astern |
+| **180°** | to the rear |
 | **270°** (= −90°) | to the driver's left |
 
 Bearings therefore **increase clockwise** as seen from above.
 
-### The vertical axis: z points DOWN
+### The vertical axis: z points DOWN — everywhere, always
 
 Bearings alone cannot define a rotation. An angular velocity is an axial
 vector, and its sign depends on the vertical axis — so the frame has to name
 one.
 
-**z points down.** This is forced, not chosen: with x along bearing 0° and y
-along bearing 90°, right-handedness requires z = x × y, which is downward.
+> **Z points down. The coordinate system is right-handed. This holds in every
+> layer without exception — base, pilot, airframe, IMU, world model, simulator
+> and tools.**
+
+The rule is forced rather than chosen: with x along bearing 0° and y along
+bearing 90°, right-handedness requires z = x × y, which is downward.
+
+A positive rotation about a downward z swings the nose from forward toward the
+right:
+
+> **A positive angular velocity is a turn to the RIGHT (clockwise seen from
+> above). A heading increases as the vehicle turns right.**
 
 The payoff is that the bearing numbering above becomes self-consistent: a
-**positive yaw rate turns the nose toward increasing bearing** — a positive
-yaw is a turn to starboard, exactly as the compass numbering implies. Picking
-z up instead would make the frame left-handed and invert every rotation
-result below. (It is also the standard aerospace body frame, which suits a
-vehicle whose tactical layer is called the airframe.)
+positive yaw rate turns the nose toward increasing bearing, exactly as the
+compass numbering implies. Picking z up instead would make the frame
+left-handed and invert every rotation result below. (It is also the standard
+aerospace body frame, which suits a vehicle whose tactical layer is called the
+airframe.)
+
+#### Connecting a new device
+
+One coordinate system; everything uses it. A device's **driver** converts that
+device's output into it — `motors_set()`, `encoders_sample()`, `imu_sample()`.
+
+#### Body velocity to wheel velocities
+
+The one place the turn sign reaches the drivetrain. `proc turn`'s angle and
+`drive`'s `omega` carry it; `cockpit_handler.cpp` and `sim.py` apply it:
+
+```
+v_left  = v + omega * track / 2
+v_right = v - omega * track / 2
+```
 
 ### Measuring an angular velocity
 
@@ -151,18 +176,25 @@ the vehicle toward bearing 0°**. Both wheels positive is straight ahead.
 
 This is convention-free: it survives any later revision to the frame, and it
 is already the meaning of `tac_drive(left_mm_s, right_mm_s)`, of the
-backdoor's `wiggle`, and of `MOTOR_*_SIGN` / `ENC_*_SIGN` in
-`airframe/src/config.h`. Those four constants are precisely the adapters that
-make the physical machine agree with this sign rule:
+backdoor's `wiggle`, and of the RF link's `raw <vL> <vR>`. It is why a frame
+decision has a small blast radius — only body-to-wheel conversions are ever
+affected.
+
+The physical adapters, per the rule above:
 
 - `MOTOR_LEFT_SIGN` / `MOTOR_RIGHT_SIGN` — applied in `motors_set()`, last
   thing before the pins, so a positive command drives forward whatever way
   the motor happens to be wired.
 - `ENC_LEFT_SIGN` / `ENC_RIGHT_SIGN` — applied in `encoders_sample()`, so
   forward motion counts up.
+- `IMU_YAW_SIGN` — applied in `imu_sample()`, so a right turn reads positive
+  whichever way up the IMU board is bolted.
 
-Both pairs are verified on the bench by
-`python tools/backdoor.py --calibrate`; see `docs/motor_calibration.md`.
+The motor and encoder pairs are verified on the bench by
+`python tools/backdoor.py --calibrate` (see `docs/motor_calibration.md`); the
+IMU sign by `python tools/imu_cal.py --check-sign` (see
+`docs/imu_integration.md`).
+
 Reserve the bearing-and-right-hand-rule formulation for the world model, the
 IMU and anything that reasons about vehicle attitude.
 
@@ -299,8 +331,8 @@ convenient.** Normal motion flies through the cockpit (Pi5 / UART), full stop.
 
 ## 4. State Ownership — keep the brains from splitting
 
-A core hazard, and a restatement of a previously confirmed bug (conflicting dual
-state sources) at *system* scale:
+Two state sources that can disagree is a core hazard. At *system* scale the
+split is:
 
 - **Pico2 owns EXECUTION state:** Am I mid-maneuver? What is my odometry? Did the
   procedure finish, abort, or get superseded?

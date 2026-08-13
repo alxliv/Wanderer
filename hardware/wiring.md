@@ -5,7 +5,7 @@
 
 ## Pico 2 (RP2350) GPIO summary
 
-The `wanderer_airframe` flight firmware uses **13 header GPIOs**, all assigned
+The `wanderer_airframe` flight firmware uses **16 header GPIOs**, all assigned
 in [`firmware/airframe/src/config.h`](../firmware/airframe/src/config.h) — the
 source of truth for application pin assignments. Keep this table and the
 detailed connection tables below synchronized with it.
@@ -16,6 +16,8 @@ detailed connection tables below synchronized with it.
 | GP1 | 2 | UART0 RX, input | **Cockpit** commands from pilot SBC TX (header pin 8) | Active; `PICO2_UART_RX_PIN` |
 | GP4 | 6 | I²C0 SDA, bidirectional | VL53L0X front ToF data; Pico is I²C master | Reserved; `TOF_SDA_PIN` |
 | GP5 | 7 | I²C0 SCL, output | VL53L0X front ToF clock | Reserved; `TOF_SCL_PIN` |
+| GP6 | 9 | I²C1 SDA, bidirectional | MinIMU-9 v6 data; Pico is I²C master | Reserved; `IMU_SDA_PIN` |
+| GP7 | 10 | I²C1 SCL, output | MinIMU-9 v6 clock | Reserved; `IMU_SCL_PIN` |
 | GP8 | 11 | Digital output | VL53L0X `XSHUT` reset/enable | Reserved/optional; `TOF_XSHUT_PIN` |
 | GP10 | 14 | PIO digital input | Left MD520 encoder C1 / channel A | Active; `ENC_LEFT_PIN_BASE` |
 | GP11 | 15 | PIO digital input | Left MD520 encoder C2 / channel B | Active; `ENC_LEFT_PIN_BASE + 1` |
@@ -23,16 +25,25 @@ detailed connection tables below synchronized with it.
 | GP13 | 17 | PIO digital input | Right MD520 encoder C2 / channel B | Active; `ENC_RIGHT_PIN_BASE + 1` |
 | GP16 | 21 | PWM output | MDD10A `PWM1`, left motor speed at 20 kHz | Active; `M1_PWM_PIN` |
 | GP17 | 22 | Digital output | MDD10A `DIR1`, left motor direction | Active; `M1_DIR_PIN` |
+| GP18 | 24 | Digital input, IRQ | MinIMU-9 v6 LSM6DSO `INT1`, gyro data-ready | Reserved; `IMU_INT1_PIN` |
 | GP19 | 25 | PWM output | MDD10A `PWM2`, right motor speed at 20 kHz | Active; `M2_PWM_PIN` |
 | GP20 | 26 | Digital output | MDD10A `DIR2`, right motor direction | Active; `M2_DIR_PIN` |
 | Board LED GPIO | Not on header | Digital output | Blinked by `wanderer_motor_test` only, not by the flight firmware | `PICO_DEFAULT_LED_PIN` from board definition |
 
 “Reserved” means the assignment exists in `config.h`, but that subsystem is not
-yet implemented in the current firmware. All other header GPIOs are presently
-unassigned: GP18 and GP21 (formerly the L298N interface) and GP6/GP7 (formerly
-the I²C cockpit, see below) are free. Note that the `wanderer_rflink` firmware,
-a separate target, additionally claims GP22 as its ROLE pin plus the nRF24 SPI
-pins; the two firmwares are never flashed at the same time.
+yet implemented in the current firmware.
+
+**Treat the `wanderer_rflink` pins as taken, not free.** That target claims
+**GP2** (link-good LED), **GP9** (nRF24 CSN), **GP14** (spi1 SCK), **GP15**
+(spi1 MOSI), **GP21** (nRF24 CE), **GP22** (`PIN_ROLE`) and **GP28** (spi1
+MISO) — see `firmware/rflink/main.cpp`. The two firmwares are never flashed at
+the same time *today*, but architecture §3a plans an RF backdoor inside the
+flight firmware, at which point those pins are claimed for real. Assigning any
+of them to a new peripheral now buys a rework later.
+
+After that exclusion the genuinely free header GPIOs are **GP3, GP26 and
+GP27**. GP26/GP27 are an I²C1 SDA/SCL pair and are the natural fallback if the
+IMU has to move off GP6/GP7.
 
 PWM: RP2350 has 8 PWM slices / 16 channels; PWM1 (GP16) and PWM2 (GP19)
 use separate channels. The firmware uses 20 kHz, the MDD10A maximum.
@@ -42,15 +53,6 @@ quadrature counting. Each encoder's A/B must be a **consecutive GPIO pair**
 `TICKS_PER_METER` calibration must use that same edge count. Forward wheel
 motion should produce positive ticks; use `ENC_LEFT_SIGN` and `ENC_RIGHT_SIGN`
 in `firmware/airframe/src/config.h` to correct polarity without rewiring A/B.
-
-### Superseded: the I²C cockpit
-
-Earlier revisions of this document wired the pilot SBC to the Pico over **I²C1
-on GP6/GP7** with the Pico as a peripheral at address `0x42`. The command
-architecture moved the cockpit to **UART** (see
-[`docs/Wanderer_Command_Architecture.md`](../docs/Wanderer_Command_Architecture.md)
-§8). That firmware is parked, unbuilt, in `firmware/airframe/legacy/`. Do not
-wire GP6/GP7 to the pilot; use the UART cockpit below.
 
 ## Pico2 UART ↔ RPI5 UART — the cockpit link
 
@@ -190,16 +192,48 @@ BMS P- ────────────────────────�
 
 Single sensor → default address 0x29, no collision handling needed yet.
 
+## MinIMU-9 v6 IMU — on the airframe, not the pilot
+
+Design spec: [`docs/imu_integration.md`](../docs/imu_integration.md).
+
+| Pin | Connects to | Notes |
+|-----|-------------|-------|
+| VDD | Pico 3V3 (OUT) | on-board regulator + level shifter accept 2.5–5.5 V |
+| GND | Common ground | — |
+| SDA | Pico GP6 (physical pin 9) | I²C1 |
+| SCL | Pico GP7 (physical pin 10) | I²C1 |
+| INT1 | Pico GP18 (physical pin 24) | LSM6DSO gyro data-ready |
+
+Addresses: LSM6DSO `0x6B` (SA0 pulled high on this carrier), LIS3MDL `0x1E`.
+No collision with the VL53L0X (`0x29`) or the planned INA226s (`0x40`–`0x4F`)
+even if the two buses were ever merged.
+
+**Why I²C1 and not I²C0.** The gyro is read at 208 Hz and sits inside the
+real-time control loop. A ToF ranging transaction or a stretched clock from a
+misbehaving INA226 must never be able to delay it, so the slow non-real-time
+sensors keep I²C0 and the one real-time sensor has I²C1 to itself.
+
+**Why the airframe and not the pilot.** The heading loop is a Tier 2 firmware
+procedure (architecture §3), so the gyro is inside a hard-real-time loop.
+Reading it across a Linux I²C bus would reintroduce the scheduling jitter the
+tactical layer exists to prevent — the same argument that puts the
+wheel-velocity loop on the Pico2. If the pilot needs attitude for the camera or
+Pan-Tilt, that calls for a *second* IMU on the pilot bus.
+
+The board carries its own pull-ups (~10 kΩ), so add none. Keep the run under
+about 15 cm and fit a 100 nF ceramic at the board's VDD pin. Mount it rigidly —
+screwed or on standoffs, not foam tape, which both transmits vibration into the
+gyro output as an apparent bias and creeps over time — with its Z axis vertical
+and at least ~10 cm from the motors.
+
 ## Pilot SBC — I²C devices
 
 | Device | Address | Bus |
 |--------|---------|-----|
-| MinIMU-9 v6 — LSM6DSO | 0x6B | pilot I²C |
-| MinIMU-9 v6 — LIS3MDL | 0x1E | pilot I²C |
 | Pan-Tilt HAT | 0x15 | pilot I²C |
 
-No address conflicts. The Pico is **not** on this bus — it reaches the pilot
-over the Pico2 UART ↔ RPI5 UART link.
+The Pico is **not** on this bus — it reaches the pilot over the Pico2 UART ↔
+RPI5 UART link.
 
 Camera Module 3 connects via the **Zero-specific narrow FFC cable** (22-pin 0.5 mm → 15-pin);
 a Pi 5 uses its own 22-pin cable instead.

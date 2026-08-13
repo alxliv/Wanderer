@@ -108,8 +108,9 @@ static void test_handshake_and_motion(void)   // spec section 9, first example
     CHECK(tac_target_left() == 300 && tac_target_right() == 300,
           "straight drive: both wheels 300 mm/s");
     send("drive 0.200 0.500");
-    // left = 0.2 - 0.5*0.15 = 0.125; right = 0.2 + 0.075 = 0.275
-    CHECK(tac_target_left() == 125 && tac_target_right() == 275,
+    // Positive omega turns right, so left is the outer wheel:
+    // left = 0.2 + 0.5*0.15 = 0.275; right = 0.2 - 0.075 = 0.125
+    CHECK(tac_target_left() == 275 && tac_target_right() == 125,
           "arc drive converts with half-track");
     out_clear();
 
@@ -212,26 +213,27 @@ static void test_drive_saturation(void)
           "a request at the limit passes through untouched");
     out_clear();
 
-    // left = 0.35, right = 0.65: only the right wheel is over, but BOTH scale
-    // by 0.6/0.65. Clipping the right wheel alone would give 350/600 and turn
-    // the commanded 0.50 m turn radius into 0.57 m -- silently.
+    // A positive omega is a turn to the RIGHT, so the LEFT wheel is the fast
+    // one: left = 0.65, right = 0.35. Only the left wheel is over, but BOTH
+    // scale by 0.6/0.65. Clipping the left wheel alone would give 600/350 and
+    // turn the commanded 0.50 m turn radius into 0.57 m -- silently.
     send("drive 0.500 1.000");
     EXPECT(0, "=ok drive lin=0.462 omega=0.923");
-    CHECK(tac_target_left() == 323 && tac_target_right() == 600,
+    CHECK(tac_target_left() == 600 && tac_target_right() == 323,
           "an over-limit pair scales together");
-    CHECK(tac_target_left() * 1000 / tac_target_right() == 538,
+    CHECK(tac_target_right() * 1000 / tac_target_left() == 538,
           "wheel ratio 0.35/0.65 survives, so the arc does too");
     out_clear();
 
     // Pure spin: the fastest this geometry can yaw is 2*0.6/0.30 = 4 rad/s.
     send("drive 0.000 10.000");
     EXPECT(0, "=ok drive lin=0.000 omega=4.000");
-    CHECK(tac_target_left() == -600 && tac_target_right() == 600,
+    CHECK(tac_target_left() == 600 && tac_target_right() == -600,
           "spin saturates symmetrically");
     out_clear();
 
-    // Absurd-but-finite input now lands on the VEHICLE limit; the int16 guard
-    // in wheel_mm_s() is no longer what bounds it.
+    // Absurd-but-finite input lands on the VEHICLE limit, not on the int16
+    // guard in wheel_mm_s().
     send("drive 1e30 0");
     EXPECT(0, "=ok drive lin=0.600 omega=0.000");
     CHECK(tac_target_left() == 600 && tac_target_right() == 600,
@@ -286,12 +288,12 @@ static void test_turn_procedure(void)
     out_clear();
     send("proc turn 1.570796 0.100");
     EXPECT(0, "=ok proc name=turn lin=0.100 timeout=6.000");
-        CHECK(tac_target_left() == 21 && tac_target_right() == 179,
+        CHECK(tac_target_left() == 179 && tac_target_right() == 21,
             "turn procedure owns curved wheel targets");
 
         out_clear();
-        g_left_ticks = -883;
-        g_right_ticks = 883;
+        g_left_ticks = 883;
+        g_right_ticks = -883;
         cockpit_tick(g_now + 3000000);
         EXPECT(0, "!proc name=turn outcome=DONE");
         CHECK(tac_target_left() == 100 && tac_target_right() == 100,

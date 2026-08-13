@@ -130,8 +130,8 @@ class SimulatedCockpitLink(CockpitLink):
             if self._state != TacticalState.ACTIVE:
                 raise CockpitNack("not_armed", f"state is {self._state.name}")
             v, w = p["linear_m_s"], p["angular_rad_s"]
-            left = v - w * self._half_track
-            right = v + w * self._half_track
+            left = v + w * self._half_track
+            right = v - w * self._half_track
             scale = self._drive_scale(left, right)
             self._v_left = left * scale
             self._v_right = right * scale
@@ -203,8 +203,8 @@ class SimulatedCockpitLink(CockpitLink):
         linear = max(-TURN_LINEAR_LIMIT_M_S,
                      min(TURN_LINEAR_LIMIT_M_S, linear))
         omega = TURN_RATE_RAD_S if angle > 0.0 else -TURN_RATE_RAD_S
-        left = linear - omega * self._half_track
-        right = linear + omega * self._half_track
+        left = linear + omega * self._half_track
+        right = linear - omega * self._half_track
         scale = self._drive_scale(left, right)
         self._v_left = left * scale
         self._v_right = right * scale
@@ -236,7 +236,7 @@ class SimulatedCockpitLink(CockpitLink):
             return
         left_m = (self._left_ticks - self._turn_start_left) / TICKS_PER_M
         right_m = (self._right_ticks - self._turn_start_right) / TICKS_PER_M
-        heading = (right_m - left_m) / (2.0 * self._half_track)
+        heading = (left_m - right_m) / (2.0 * self._half_track)
         progress = heading if self._turn_angle > 0.0 else -heading
         target = max(abs(self._turn_angle) - TURN_OVERSHOOT_RAD, 0.0)
         if progress >= target:

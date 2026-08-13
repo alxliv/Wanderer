@@ -293,9 +293,9 @@ class DriveLimitTest(unittest.TestCase):
 
     def test_scaled_command_reaches_the_wheels(self):
         linear, angular = 0.55, 1.0
-        left = linear - angular * HALF_TRACK_M
-        right = linear + angular * HALF_TRACK_M
-        scale = MAX_WHEEL_M_S / right
+        left = linear + angular * HALF_TRACK_M
+        right = linear - angular * HALF_TRACK_M
+        scale = MAX_WHEEL_M_S / left
         self.cockpit.drive(linear, angular)
         odom = self.cockpit.odometry()
         self.assertAlmostEqual(odom.right_m_s, right * scale)
@@ -308,8 +308,8 @@ class DriveLimitTest(unittest.TestCase):
         self.assertAlmostEqual(applied.linear_m_s, 0.0)
         self.assertAlmostEqual(applied.angular_rad_s, max_angular)
         odom = self.cockpit.odometry()
-        self.assertAlmostEqual(odom.left_m_s, -0.6)
-        self.assertAlmostEqual(odom.right_m_s, 0.6)
+        self.assertAlmostEqual(odom.left_m_s, 0.6)
+        self.assertAlmostEqual(odom.right_m_s, -0.6)
 
     def test_limiting_is_opt_in(self):
         cockpit = Cockpit(SimulatedCockpitLink(

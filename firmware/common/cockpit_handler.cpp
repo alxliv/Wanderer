@@ -191,8 +191,8 @@ static int start_turn(float angle_rad, float linear_m_s, uint64_t now_us)
     s_odom(&left_ticks, &right_ticks, &vl, &vr);
 
     const float omega = copysignf(s_turnRateRadS, angle_rad);
-    const float left = linear_m_s - omega * s_halfTrackM;
-    const float right = linear_m_s + omega * s_halfTrackM;
+    const float left = linear_m_s + omega * s_halfTrackM;
+    const float right = linear_m_s - omega * s_halfTrackM;
     const float scale = drive_scale(left, right);
     const int rc = tac_drive(wheel_mm_s(left * scale),
                              wheel_mm_s(right * scale));
@@ -268,8 +268,8 @@ static void handle_request(char *line, uint64_t now_us)
             reply_err("drive", "bad_args", "expected 2 numbers");
             return;
         }
-        float left  = lin_m_s - omega_rad_s * s_halfTrackM;
-        float right = lin_m_s + omega_rad_s * s_halfTrackM;
+        float left  = lin_m_s + omega_rad_s * s_halfTrackM;
+        float right = lin_m_s - omega_rad_s * s_halfTrackM;
         // Both inputs are finite (codec_parse_f32 guarantees it), but their
         // sum can still overflow at the extremes of float range. Refuse rather
         // than scale an infinity -- max/inf would be 0, and inf*0 is NaN.
@@ -390,7 +390,7 @@ void cockpit_tick(uint64_t now_us)
     const double right_m = (double)wrapping_tick_delta(right_ticks,
                                                         s_turnStartRight)
                          / (double)s_ticksPerMeter;
-    const double heading = (right_m - left_m) / (2.0 * s_halfTrackM);
+    const double heading = (left_m - right_m) / (2.0 * s_halfTrackM);
     const double progress = (s_turnAngleRad > 0.0f) ? heading : -heading;
     const double target = fmax((double)fabsf(s_turnAngleRad)
                                - (double)s_turnOvershootRad, 0.0);

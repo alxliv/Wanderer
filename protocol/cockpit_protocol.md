@@ -158,7 +158,8 @@ new fields may be appended at any time without a protocol revision.
 ### Firmware-owned relative turn
 
 `proc turn <angle_rad> <linear_m_s>` starts a nonblocking encoder-closed turn.
-Angles use the robotics convention: positive is counterclockwise. The firmware
+Angles follow the body frame of architecture §2a: **positive is a turn to the
+right** (clockwise seen from above), as does `drive`'s `omega`. The firmware
 chooses turn rate, overshoot compensation, and the maximum linear speed during
 the maneuver. `lin` reports the accepted signed linear speed; `timeout` is the
 firmware's maximum procedure duration so a client can bound its wait.
