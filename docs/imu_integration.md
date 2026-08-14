@@ -20,7 +20,7 @@ observed:
 | Error | Present magnitude | Fixed by |
 |---|---|---|
 | Open-loop wheel gain mismatch | `MOTOR_RIGHT_GAIN_PERMILLE 841` — a *single* number fitted at one duty, on one floor, unloaded | Heading loop (integral term absorbs it continuously) |
-| Deadband asymmetry (55‰ left vs 35‰ right) | Below ~65‰ one wheel spins and one does not | Deadband feed-forward (§9) — **not** the IMU |
+| Deadband asymmetry (55 left vs 35 right, out of 1000) | Below about 65 one wheel spins and one does not | Deadband feed-forward (§9) — **not** the IMU |
 | Wheel slip | Unbounded, surface-dependent | Heading loop (gyro does not care about slip) |
 | Encoder-derived heading being wrong | Same root cause as slip | Gyro replaces it inside `proc turn` |
 
@@ -532,11 +532,13 @@ same discipline as `tools/backdoor.py` reading `max_duty` from `ver`.
 
 motor_calibration.md §6 already names this as "the usual cause of *it veers at
 slow speed*", and the measured numbers make it concrete: **left breaks away at
-55‰, right at 35‰, and both only turn reliably at 65‰.**
+55, right at 35, and both only turn reliably at 65 — out of a full-power
+1000.**
 
 Now price the turn procedure against that. `TURN_RATE_RAD_S` = 50 °/s =
 0.873 rad/s, so each wheel runs at `omega * track/2` = 0.873 × 0.0975 ≈
-**0.085 m/s**. Against `DEFAULT_MAX_SPEED_MM_S` = 600, that is ≈ **142‰** —
+**0.085 m/s**. Against `DEFAULT_MAX_SPEED_MM_S` = 600, that is a duty of about
+**142 out of 1000** —
 and the 55/35 figures are *unloaded*; loaded breakaway is materially higher.
 Turns are therefore running close to the floor of what the drivetrain can
 actually deliver, which is very likely part of why they are inconsistent
@@ -585,8 +587,8 @@ and `zero_heading` on the cockpit, plus the matching model in
 *Done when:* `TRACK_WIDTH_M` stops being a guess.
 
 **M4 — Deadband feed-forward** (§9). Re-run `tools/backdoor.py --calibrate` to
-confirm the effective deadband is gone. *Done when:* a 100‰ command moves both
-wheels.
+confirm the effective deadband is gone. *Done when:* a duty of 100 out of 1000
+moves both wheels.
 
 **M5 — `proc turn` on the gyro.** Swap the heading source, add `imu_stale`
 abort, re-tune `TURN_OVERSHOOT_RAD`. *Done when:* the repeatability test in §11
