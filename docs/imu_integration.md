@@ -224,7 +224,7 @@ imu_sample_t imu_sample(void);
 /* False once no fresh sample has arrived for IMU_STALE_MS. */
 bool imu_healthy(void);
 
-/* Raw, unsigned, uncorrected LSB -- diagnostics and calibration only. */
+/* The raw count from the chip, uncorrected -- diagnostics and calibration. */
 int16_t imu_raw_gyro_z(void);
 
 #ifdef __cplusplus
@@ -248,7 +248,7 @@ the wrong part — stop.
 
 Gyro Z is `OUTZ_L_G`/`OUTZ_H_G` (`0x26`/`0x27`). **BDU=1 is not optional** —
 without it a byte pair can straddle an update and produce a plausible,
-catastrophic wrong value. Sensitivity at ±500 °/s: **17.50 mdps/LSB**.
+catastrophic wrong value. At ±500 °/s each count is worth **0.0175 °/s**.
 
 ### 4.2 Timing — polled, not interrupt-driven
 
@@ -519,7 +519,7 @@ of architecture §3a admits "read a register", and neither verb commands motion)
 
 | Verb | Effect |
 |---|---|
-| `imu` | `=ok imu raw=<lsb> rate=<deg/s> bias=<deg/s> psi=<deg> ok=<0\|1>` |
+| `imu` | `=ok imu raw=<count> rate=<deg/s> bias=<deg/s> psi=<deg> ok=<0\|1>` |
 | `imu cal` | Re-run the §5.1 static bias average; report mean and σ |
 
 `cfg` grows `imu_sign=` and `imu_scale=` alongside the existing constants, so
@@ -566,7 +566,7 @@ Each ends in a working, committed, tested state, in the project's usual
 design → implement → test → commit order.
 
 **M0 — Wire and bring up.** Mount, wire I2C1, add `IMU_*` pins to `config.h`,
-`imu_init()` with a WHO_AM_I check, `imu` backdoor verb printing raw LSB.
+`imu_init()` with a WHO_AM_I check, `imu` backdoor verb printing the raw count.
 *Done when:* `=ok imu raw=…` responds and the raw number swings the expected
 way when you spin the robot by hand.
 

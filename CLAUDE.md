@@ -21,6 +21,7 @@ document or the code that is wrong.
 | starboard, port | right, left |
 | astern | to the rear |
 | silkscreen | connector labels, the labels on the board |
+| LSB | count, step (as in "each count is worth 0.0175 °/s") |
 
 Expand an abbreviation the first time it appears (mdps, ARW, ODR).
 
