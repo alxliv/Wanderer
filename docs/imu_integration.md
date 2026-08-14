@@ -76,8 +76,8 @@ rotation rates far above anything you deliberately command.
 
 *The coarser steps cost nothing here.* At ±500 °/s the smallest change the
 chip can report is 0.0175 °/s. The sensor's own electrical noise is around
-0.03 °/s — a bit larger than that step. So the steps are already finer than
-the noise they sit in, and a finer scale would only be measuring the noise
+0.02 °/s — about the same size as that step. So the steps are already as fine
+as the noise they sit in, and a finer scale would only be measuring the noise
 more precisely.
 
 *Why not ±250 °/s.* It would halve the step to about 0.009 °/s, which by the
@@ -129,9 +129,9 @@ robot to the right by hand and watch the number.
 `I2C0` (GP4/GP5) is reserved for the VL53L0X ToF. **Put the IMU on `I2C1`,
 not I2C0.** Reasons, in order of weight:
 
-- The gyro is read at 208 Hz and is *in the control loop*. A ToF ranging
-  transaction or a stretched clock from a misbehaving INA226 must never be
-  able to delay it.
+- The gyro is read every control tick and is *in the control loop*. A ToF
+  ranging transaction or a stretched clock from a misbehaving INA226 must
+  never be able to delay it.
 - The planned INA226 pair also wants a bus; grouping the two slow,
   non-real-time sensors on I2C0 and the one real-time sensor alone on I2C1 is
   the partition that survives contact with a fault.
@@ -142,9 +142,11 @@ not I2C0.** Reasons, in order of weight:
 |---|---|---|
 | `IMU_SDA_PIN` | **GP6** | I2C1 SDA |
 | `IMU_SCL_PIN` | **GP7** | I2C1 SCL |
-| `IMU_INT1_PIN` | **GP18** | LSM6DSO INT1, gyro data-ready |
 | VDD | 3V3(OUT) | board regulator + level shifter accept it directly |
 | GND | GND | |
+
+Four wires. The carrier breaks out power and I²C only — no data-ready line
+(§4.2).
 
 **The radio's pins are reserved.** `firmware/rflink/main.cpp` holds GP2, 9, 14,
 15, 21, 22 and 28 — `spi1` plus CE, CSN and `PIN_ROLE`. `wanderer_rflink` and
@@ -154,8 +156,7 @@ claimed for real. Treat them as taken.
 
 The airframe holds GP0/1, 4/5, 8, 10–13, 16/17, 19/20. That leaves **GP3, GP6,
 GP7, GP18, GP26, GP27** on the header. GP6/GP7 are the only free *adjacent*
-I2C1 SDA/SCL pair; GP18 is free in both firmwares. GP26/GP27 are the fallback
-I2C1 pair.
+I2C1 SDA/SCL pair. GP26/GP27 are the fallback I2C1 pair.
 
 Bus at **400 kHz**. The MinIMU-9 v6 carries its own pull-ups (~10 kΩ) on the
 level-shifted side, so add none. Keep the run under ~15 cm; a 100 nF ceramic
@@ -215,9 +216,8 @@ typedef struct {
 int  imu_init(void);
 
 /*
- * Read one gyro/accel sample if data-ready is asserted. Applies IMU_YAW_SIGN
- * and subtracts the current bias estimate. Non-blocking: returns fresh=false
- * when no sample is pending. Call from the control core, never from an ISR.
+ * Read gyro and accel over I2C. Applies IMU_YAW_SIGN and subtracts the current
+ * bias estimate. fresh=false if the read failed. Call once per control tick.
  */
 imu_sample_t imu_sample(void);
 
@@ -241,34 +241,45 @@ the wrong part — stop.
 | Register | Value | Meaning |
 |---|---|---|
 | `CTRL3_C` (0x12) | `0x01` then wait, then `0x44` | software reset; then BDU=1, IF_INC=1 |
-| `CTRL2_G` (0x11) | `0x54` | gyro ODR 208 Hz, FS ±500 dps |
+| `CTRL2_G` (0x11) | `0x44` | gyro ODR 104 Hz, FS ±500 °/s |
 | `CTRL1_XL` (0x10) | `0x40` | accel ODR 104 Hz, FS ±2 g |
-| `CTRL6_C` (0x15) | `0x00` | gyro LPF1 default; high-performance mode on |
-| `INT1_CTRL` (0x0D) | `0x02` | route gyro data-ready to INT1 |
+| `CTRL4_C` (0x13) | `0x02` | enable the gyro's low-pass filter |
+| `CTRL6_C` (0x15) | filter bandwidth | confirm the `FTYPE` bits against the datasheet at 104 Hz |
 
 Gyro Z is `OUTZ_L_G`/`OUTZ_H_G` (`0x26`/`0x27`). **BDU=1 is not optional** —
 without it a byte pair can straddle an update and produce a plausible,
-catastrophic wrong value. Sensitivity at ±500 dps: **17.50 mdps/LSB**.
+catastrophic wrong value. Sensitivity at ±500 °/s: **17.50 mdps/LSB**.
 
-### 4.2 Timing
+### 4.2 Timing — polled, not interrupt-driven
 
-- **208 Hz gyro ODR against a 100 Hz control loop** — deliberately oversampled
-  so a missed control tick never loses heading.
-- INT1 → GPIO IRQ that does nothing but set a flag and record `time_us_64()`.
-  **No I²C in the ISR.** A 6-byte burst read at 400 kHz is ~250 µs of blocking
-  and does not belong in an interrupt handler.
-- The control core drains pending samples each pass. A 6-byte read at 208 Hz
-  is ~5% of the bus and ~5% of one core — comfortable.
-- **Integrate against the RP2350 timer, not the nominal ODR period.** The
-  LSM6DSO's internal oscillator carries a few percent of tolerance that drifts
-  with temperature; using it as your time base folds that straight into scale
-  factor. The Pico's crystal does not. `dpsi = yaw_rate * (t_us - t_prev_us) * 1e-6f`.
+**The MinIMU-9 v6 breaks out power and I²C only.** The LSM6DSO die has INT1 and
+INT2 pads, but this carrier does not route them to the header, so there is no
+data-ready line to wait on and no GPIO to spend. The gyro is read by polling.
+
+- **Gyro ODR 104 Hz, read once per 100 Hz control tick.** Matching the two
+  rates means one 6-byte I²C read per tick — about 250 µs at 400 kHz, 2.5% of
+  the loop.
+- **Integrate against the RP2350 timer, not a nominal period.**
+  `dpsi = yaw_rate * (t_us - t_prev_us) * 1e-6f`. This is what makes polling
+  safe: the sensor's clock and the Pico's are independent, so occasionally the
+  same sample is read twice or one is skipped. Using the measured interval
+  turns that into a zero-order-hold error on a slowly-varying signal — bounded,
+  and it averages out across a maneuver. Assuming a fixed 1/104 s interval
+  instead would fold the LSM6DSO's oscillator tolerance straight into scale
+  factor, and that error *does* accumulate.
+- **Match the filter to the sample rate.** With ODR at 104 Hz the gyro's
+  low-pass filter should be set so its bandwidth is under ~50 Hz, otherwise
+  noise above half the sample rate folds back into the reading.
 
 ### 4.3 Health
 
-`IMU_STALE_MS` = 50 ms (10 missed samples). Losing the gyro mid-turn is a real
-failure mode — a loose Dupont wire is all it takes — and must abort the
-procedure loudly rather than let it integrate zero and stop wherever.
+`IMU_STALE_MS` = 50 ms — five missed reads. Losing the gyro mid-turn is a real
+failure mode; a loose Dupont wire is all it takes. It must abort the procedure
+loudly rather than integrate zero and stop wherever.
+
+Without a data-ready line, "stale" means the I²C read itself failed or the
+sample never changes. Check both: a bus error, and `STATUS_REG` (`0x1E`) bit
+`GDA` never asserting.
 
 ---
 
@@ -282,9 +293,9 @@ Zero-rate offset, ~±1 °/s raw, drifts with temperature and time. Measured at
 rest, subtracted from every sample.
 
 **Boot calibration.** On `imu_init()`, if the vehicle is stationary, average
-**1024 samples (~5 s)** of raw gyro Z. Report both mean and standard
+**512 samples (~5 s)** of raw gyro Z. Report both mean and standard
 deviation — the σ is your noise floor and the number that tells you whether
-the mount is rigid. Expect σ ≈ 0.03 °/s on a still bench; σ above ~0.2 °/s
+the mount is rigid. Expect σ ≈ 0.02 °/s on a still bench; σ above ~0.2 °/s
 means vibration or a bad mount, and you should fix that before proceeding.
 
 If the vehicle is *not* still at boot, skip it and rely on §5.3. Never
@@ -307,7 +318,7 @@ still  :=  left_delta == 0  AND  right_delta == 0
            AND |az - 9.81|            < STILL_ACCEL_THRESH (0.3 m/s^2)
            held for STILL_TICKS       (50 ticks = 0.5 s at CONTROL_HZ)
 
-while still:  bias += IMU_BIAS_ALPHA * (yaw_rate_raw - bias)   /* alpha = 0.002 */
+while still:  bias += IMU_BIAS_ALPHA * (yaw_rate_raw - bias)   /* alpha = 0.004 */
 ```
 
 Notes that are easy to get wrong:
@@ -318,7 +329,7 @@ Notes that are easy to get wrong:
 - **Never update bias while a Tier 2 procedure is active**, even if the
   stillness test passes momentarily at the start of a turn. Gate on
   procedure-idle explicitly.
-- α = 0.002 per sample at 208 Hz gives a ~2.4 s time constant — fast enough to
+- α = 0.004 per sample at 104 Hz gives a ~2.4 s time constant — fast enough to
   track thermal drift across a stop, slow enough that half a second of
   spurious stillness cannot corrupt it.
 - The residual after this lands around **0.05 °/s**, i.e. ~3 °/min of free
@@ -559,9 +570,10 @@ design → implement → test → commit order.
 *Done when:* `=ok imu raw=…` responds and the raw number swings the expected
 way when you spin the robot by hand.
 
-**M1 — Driver.** DRDY interrupt, timestamped reads, `IMU_YAW_SIGN` verified by
-hand-spin, `imu_healthy()`. *Done when:* rate in °/s is right within eyeball
-accuracy and holding the robot still reads near zero.
+**M1 — Driver.** Polled reads on the control tick, timestamped from the RP2350
+timer, `IMU_YAW_SIGN` verified by hand-spin, `imu_healthy()`. *Done when:* rate
+in °/s is right within eyeball accuracy and holding the robot still reads near
+zero.
 
 **M2 — Estimator.** `heading.c`, boot bias cal, runtime re-zero, `get_heading`
 and `zero_heading` on the cockpit, plus the matching model in

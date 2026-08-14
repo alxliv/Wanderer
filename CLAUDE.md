@@ -14,9 +14,15 @@ files wants to know what used to be here. If the past ever matters,
 compatibility note, or a "the following supersedes X" section. Edit the
 document or the code that is wrong.
 
-**Plain English.** No jargon where a common word works — "right" and "left",
-not starboard and port; "to the rear", not astern. Expand an abbreviation the
-first time it appears (mdps, ARW, ODR).
+**Plain English.** No jargon where a common word works:
+
+| Don't write | Write |
+|---|---|
+| starboard, port | right, left |
+| astern | to the rear |
+| silkscreen | connector labels, the labels on the board |
+
+Expand an abbreviation the first time it appears (mdps, ARW, ODR).
 
 **No filler.** Every sentence must add something. Delete any sentence that
 restates the one before it in different words, and any closing flourish that

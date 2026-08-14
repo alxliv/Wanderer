@@ -5,7 +5,7 @@
 
 ## Pico 2 (RP2350) GPIO summary
 
-The `wanderer_airframe` flight firmware uses **16 header GPIOs**, all assigned
+The `wanderer_airframe` flight firmware uses **15 header GPIOs**, all assigned
 in [`firmware/airframe/src/config.h`](../firmware/airframe/src/config.h) — the
 source of truth for application pin assignments. Keep this table and the
 detailed connection tables below synchronized with it.
@@ -25,7 +25,6 @@ detailed connection tables below synchronized with it.
 | GP13 | 17 | PIO digital input | Right MD520 encoder C2 / channel B | Active; `ENC_RIGHT_PIN_BASE + 1` |
 | GP16 | 21 | PWM output | MDD10A `PWM1`, left motor speed at 20 kHz | Active; `M1_PWM_PIN` |
 | GP17 | 22 | Digital output | MDD10A `DIR1`, left motor direction | Active; `M1_DIR_PIN` |
-| GP18 | 24 | Digital input, IRQ | MinIMU-9 v6 LSM6DSO `INT1`, gyro data-ready | Reserved; `IMU_INT1_PIN` |
 | GP19 | 25 | PWM output | MDD10A `PWM2`, right motor speed at 20 kHz | Active; `M2_PWM_PIN` |
 | GP20 | 26 | Digital output | MDD10A `DIR2`, right motor direction | Active; `M2_DIR_PIN` |
 | Board LED GPIO | Not on header | Digital output | Blinked by `wanderer_motor_test` only, not by the flight firmware | `PICO_DEFAULT_LED_PIN` from board definition |
@@ -202,14 +201,31 @@ Design spec: [`docs/imu_integration.md`](../docs/imu_integration.md).
 | GND | Common ground | — |
 | SDA | Pico GP6 (physical pin 9) | I²C1 |
 | SCL | Pico GP7 (physical pin 10) | I²C1 |
-| INT1 | Pico GP18 (physical pin 24) | LSM6DSO gyro data-ready |
 
-Addresses: LSM6DSO `0x6B` (SA0 pulled high on this carrier), LIS3MDL `0x1E`.
-No collision with the VL53L0X (`0x29`) or the planned INA226s (`0x40`–`0x4F`)
-even if the two buses were ever merged.
+See the [MinIMU-9 v6 to Pico 2 wiring diagram](../docs/minimu9_v6_to_pico2_wiring.png).
 
-**Why I²C1 and not I²C0.** The gyro is read at 208 Hz and sits inside the
-real-time control loop. A ToF ranging transaction or a stretched clock from a
+The header has a fifth pin, `SA0` — the address select, pulled high on the
+board. Leave it unconnected: that gives the LSM6DSO `0x6B`, and the firmware
+expects it. Pulling it low would move the part to `0x6A`.
+
+**Power the board through VIN, never through an internal rail.** Per the
+[schematic](https://www.pololu.com/file/0J1976/minimu-9-v6-schematic.pdf), the
+header-side `SDA`/`SCL` pull-ups go to **VIN**, while the chip-side pull-ups go
+to the on-board regulator output. VIN is therefore the reference that sets the
+logic level on the header, not merely a supply. Feed it 3.3 V and the I²C lines
+swing 3.3 V, which is what the RP2350 needs — it is **not** 5 V tolerant, so do
+not feed VIN from VSYS or a 5 V rail.
+
+Addresses: LSM6DSO `0x6B`, LIS3MDL `0x1E`. No collision with the VL53L0X
+(`0x29`) or the planned INA226s (`0x40`–`0x4F`) even if the two buses were ever
+merged.
+
+Four wires. The carrier breaks out power and I²C only — the LSM6DSO's `INT1`
+pad is not routed to the header, so the gyro is polled once per control tick
+rather than driven by a data-ready line.
+
+**Why I²C1 and not I²C0.** The gyro is read every control tick and sits inside
+the real-time loop. A ToF ranging transaction or a stretched clock from a
 misbehaving INA226 must never be able to delay it, so the slow non-real-time
 sensors keep I²C0 and the one real-time sensor has I²C1 to itself.
 
