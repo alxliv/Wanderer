@@ -136,6 +136,8 @@ One wire verb per `OP_*` constant in `pilot/cockpit/link.py`, same spelling:
 | `stop`        | —                             | —                                  | `not_armed`             |
 | `get_state`   | —                             | `state=<NAME>` `fault=<NAME>` (only in FAULT) | —            |
 | `get_odometry`| —                             | `lt=<int> rt=<int> vl=<m/s> vr=<m/s>` | —                    |
+| `get_heading` | —                             | `psi=<rad> rate=<rad/s> bias=<rad/s> valid=<0\|1>` | — |
+| `zero_heading`| —                             | —                                  | `imu_not_ready` |
 | `get_version` | —                             | `fw=<major>.<minor>`               | —                       |
 | `get_geometry`| —                             | `tpm=<ticks/m> track=<m>`          | —                       |
 | `proc`        | `turn <angle_rad> <linear_m_s>` | `name=turn lin=<m/s> timeout=<s>` | `not_armed`, `bad_args` |
@@ -492,7 +494,7 @@ re-implementing it.
 Pilot -> airframe (bare verbs):
   ping | arm | disarm | estop | clear_fault
   drive <linear_m_s> <angular_rad_s> | stop
-  get_state | get_odometry | get_version | get_geometry
+  get_state | get_odometry | get_heading | zero_heading | get_version | get_geometry
   ^<payload>                      (relay to Base, opaque)
 
 airframe -> Pilot (sigil + payload):

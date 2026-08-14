@@ -34,6 +34,10 @@ TURN_OVERSHOOT_RAD = 0.0349066
 TURN_LINEAR_LIMIT_M_S = 0.2
 
 
+def _wrap_pi(angle: float) -> float:
+    return (angle + math.pi) % (2.0 * math.pi) - math.pi
+
+
 class SimulatedCockpitLink(CockpitLink):
     def __init__(self, *, liveness_timeout_s: float = 0.75,
                  half_track_m: float = HALF_TRACK_M,
@@ -60,6 +64,10 @@ class SimulatedCockpitLink(CockpitLink):
         self._turn_start_left = 0.0
         self._turn_start_right = 0.0
         self._turn_deadline = 0.0
+        self._heading = 0.0
+        self._heading_rate = 0.0
+        self._heading_bias = 0.0
+        self._heading_valid = True
 
     # ---- CockpitLink ----------------------------------------------------
 
@@ -163,6 +171,16 @@ class SimulatedCockpitLink(CockpitLink):
                 "left_m_s": self._v_left if self._moving() else 0.0,
                 "right_m_s": self._v_right if self._moving() else 0.0,
             })
+        if op == _link.OP_GET_HEADING:
+            return Reply({"psi_rad": self._heading,
+                          "rate_rad_s": self._heading_rate,
+                          "bias_rad_s": self._heading_bias,
+                          "valid": self._heading_valid})
+        if op == _link.OP_ZERO_HEADING:
+            if not self._heading_valid:
+                raise CockpitNack("imu_not_ready", "")
+            self._heading = 0.0
+            return Reply()
         if op == _link.OP_GET_VERSION:
             return Reply({"major": 0, "minor": 1})
         if op == _link.OP_GET_GEOMETRY:
@@ -267,8 +285,14 @@ class SimulatedCockpitLink(CockpitLink):
                 dt = now - self._last_tick_time
                 self._last_tick_time = now
                 if self._moving():
+                    self._heading_rate = ((self._v_left - self._v_right)
+                                          / (2.0 * self._half_track))
+                    self._heading = _wrap_pi(self._heading
+                                             + self._heading_rate * dt)
                     self._left_ticks += self._v_left * dt * TICKS_PER_M
                     self._right_ticks += self._v_right * dt * TICKS_PER_M
+                else:
+                    self._heading_rate = 0.0
                 if (self._state == TacticalState.ACTIVE
                         and now - self._last_seen > self._liveness_timeout):
                     self._enter(TacticalState.FALLBACK)

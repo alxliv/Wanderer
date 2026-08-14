@@ -32,6 +32,16 @@ class Odometry:
 
 
 @dataclass(frozen=True)
+class Heading:
+    """Gyro-integrated relative heading owned by the airframe."""
+
+    psi_rad: float
+    rate_rad_s: float
+    bias_rad_s: float
+    valid: bool
+
+
+@dataclass(frozen=True)
 class FirmwareVersion:
     major: int
     minor: int
@@ -229,6 +239,16 @@ class Cockpit:
         v = reply.values
         return Odometry(left_ticks=v["left_ticks"], right_ticks=v["right_ticks"],
                         left_m_s=v["left_m_s"], right_m_s=v["right_m_s"])
+
+    def heading(self) -> Heading:
+        reply = self._execute(_link.OP_GET_HEADING)
+        v = reply.values
+        return Heading(psi_rad=v["psi_rad"], rate_rad_s=v["rate_rad_s"],
+                       bias_rad_s=v["bias_rad_s"], valid=v["valid"])
+
+    def zero_heading(self) -> None:
+        """Make the current valid gyro heading the new relative zero."""
+        self._execute(_link.OP_ZERO_HEADING)
 
     def version(self) -> FirmwareVersion:
         reply = self._execute(_link.OP_GET_VERSION)

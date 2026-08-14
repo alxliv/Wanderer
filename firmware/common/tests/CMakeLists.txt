@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project(wanderer_common_unit_tests CXX)
+project(wanderer_common_unit_tests C CXX)
 
 # Host-side unit tests for firmware/common -- builds WITHOUT the Pico SDK,
 # on Linux/Windows/macOS. Same pattern as firmware/airframe/tests.
@@ -47,3 +47,13 @@ add_executable(test_backdoor
 )
 target_include_directories(test_backdoor PRIVATE ..)
 add_test(NAME backdoor COMMAND test_backdoor)
+
+add_executable(test_heading
+    test_heading.cpp
+    ../../airframe/src/heading.c
+)
+target_include_directories(test_heading PRIVATE
+    ..
+    ../../airframe/src
+)
+add_test(NAME heading COMMAND test_heading)

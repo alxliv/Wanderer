@@ -66,6 +66,7 @@ class Backdoor:
     def __init__(self, port: str, timeout: float = 2.0, verbose: bool = False):
         # USB CDC ignores baud rate; 115200 is convention, not configuration.
         self.ser = serial.Serial(port, 115200, timeout=timeout)
+        self.timeout = timeout
         self.verbose = verbose
         self.events: list[str] = []
         # `*` lines emitted while serving the last request. Some replies carry
@@ -90,8 +91,14 @@ class Backdoor:
         except Exception:
             pass
 
-    def _readline(self) -> str:
-        raw = self.ser.readline()
+    def _readline(self, timeout: float | None = None) -> str:
+        old_timeout = self.ser.timeout
+        if timeout is not None:
+            self.ser.timeout = timeout
+        try:
+            raw = self.ser.readline()
+        finally:
+            self.ser.timeout = old_timeout
         if not raw:
             raise TimeoutError("no reply from the airframe")
         line = raw.decode("utf-8", errors="replace").strip()
@@ -99,8 +106,29 @@ class Backdoor:
             print(f"    < {line}")
         return line
 
-    def request(self, line: str) -> str:
-        """Send a request and return its `=ok`/`=err` line.
+    @staticmethod
+    def _reply_matches(request: str, reply: str) -> bool:
+        """Whether a reply belongs to this request rather than an old one."""
+        request_tokens = request.lower().split()
+        reply_tokens = reply.lower().split()
+        if len(request_tokens) == 0 or len(reply_tokens) < 2:
+            return False
+        if reply_tokens[1] == "?":
+            return True
+        if reply_tokens[1] != request_tokens[0]:
+            return False
+        # `imu cal` is deliberately distinguished from the regular `imu`
+        # read. A five-second calibration reply arriving late must never be
+        # displayed as the answer to the next raw read, or vice versa.
+        if len(request_tokens) == 2 and request_tokens == ["imu", "cal"]:
+            return (reply_tokens[0] == "=err"
+                    or "cal=1" in reply_tokens[2:])
+        if request_tokens == ["imu"]:
+            return "cal=1" not in reply_tokens[2:]
+        return True
+
+    def request(self, line: str, timeout: float | None = None) -> str:
+        """Send a request and return its matching `=ok`/`=err` line.
 
         `*` log lines seen on the way are collected in `notes` (replacing the
         previous request's), `!` events in `events`.
@@ -110,10 +138,25 @@ class Backdoor:
         self.notes.clear()
         self.ser.write((line + "\r\n").encode("ascii"))
         self.ser.flush()
+        # Static IMU calibration collects 512 samples at 104 Hz, just under
+        # five seconds. Leave margin for scheduling and I2C retries.
+        wait_s = timeout if timeout is not None else (
+            8.0 if line.strip().lower() == "imu cal" else self.timeout)
+        deadline = time.monotonic() + wait_s
         while True:
-            got = self._readline()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.0:
+                raise TimeoutError(f"no reply to {line!r} within {wait_s:g} s")
+            try:
+                got = self._readline(remaining)
+            except TimeoutError:
+                raise TimeoutError(f"no reply to {line!r} within {wait_s:g} s") from None
             if got.startswith("=ok") or got.startswith("=err"):
-                return got
+                if self._reply_matches(line, got):
+                    return got
+                if self.verbose:
+                    print(f"    ! dropped stale reply: {got}")
+                continue
             if got.startswith("!"):
                 self.events.append(got)
             elif got.startswith("*"):

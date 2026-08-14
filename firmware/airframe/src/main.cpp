@@ -28,6 +28,7 @@
 #include "config.h"
 #include "encoders.h"
 #include "encoder_math.h"
+#include "heading.h"
 #include "imu.h"
 #include "motors.h"
 
@@ -74,6 +75,45 @@ static void backdoor_motor_out(int16_t left_permille, int16_t right_permille)
 
 static void backdoor_encoders(int32_t *left_ticks, int32_t *right_ticks);
 
+// The IMU is polled only by the 100 Hz control loop. Backdoor reads use this
+// cache, so bench traffic cannot create an extra I2C transaction or jitter it.
+static imu_sample_t s_imu_sample;
+
+static float backdoor_imu_rate_degrees_s(void)
+{
+    return s_imu_sample.yaw_rate * 180.0f / PI;
+}
+
+static bool backdoor_imu_is_healthy(void) { return imu_healthy(); }
+static float backdoor_imu_bias_degrees_s(void)
+{
+    return heading_bias() * 180.0f / PI;
+}
+static float backdoor_imu_heading_degrees(void)
+{
+    return heading_get() * 180.0f / PI;
+}
+static bool backdoor_imu_calibrate(float *mean_deg_s, float *stddev_deg_s)
+{
+    if (tac_state() != TacticalState::Safe)
+        return false;
+    float mean, stddev;
+    if (!heading_calibrate(&mean, &stddev))
+        return false;
+    *mean_deg_s = mean * 180.0f / PI;
+    *stddev_deg_s = stddev * 180.0f / PI;
+    return true;
+}
+
+static void cockpit_heading_provider(float *psi, float *rate, float *bias,
+                                     bool *valid)
+{
+    *psi = heading_get();
+    *rate = heading_rate();
+    *bias = heading_bias();
+    *valid = heading_valid();
+}
+
 // ---- odometry --------------------------------------------------------------
 
 // Updated by the control loop, read by the cockpit's get_odometry.
@@ -117,12 +157,14 @@ int main(void)
     encoders_init();
     encoders_reset();
     const int imu_rc = imu_init();
+    heading_init();
 
     tac_init();
     cockpit_init(cockpit_line_out, FW_VERSION_MAJOR, FW_VERSION_MINOR,
                  DEFAULT_TICKS_PER_METER, TRACK_WIDTH_M / 2.0f,
                  DEFAULT_MAX_SPEED_MM_S / 1000.0f);
     cockpit_set_odometry_provider(odometry_provider);
+    cockpit_set_heading_provider(cockpit_heading_provider, heading_zero);
     cockpit_set_turn_config(TURN_RATE_RAD_S, TURN_OVERSHOOT_RAD,
                             TURN_LINEAR_LIMIT_M_S);
     // Relay sink deliberately not set: `^` payloads are dropped until the
@@ -133,6 +175,13 @@ int main(void)
     backdoor_set_encoder_provider(backdoor_encoders, encoders_reset);
     if (imu_rc == 0)
         backdoor_set_imu_raw_provider(imu_raw_gyro_z);
+    if (imu_rc == 0)
+        backdoor_set_imu_status_providers(backdoor_imu_rate_degrees_s,
+                                           backdoor_imu_is_healthy);
+    if (imu_rc == 0)
+        backdoor_set_imu_estimator_providers(backdoor_imu_bias_degrees_s,
+                                              backdoor_imu_heading_degrees,
+                                              backdoor_imu_calibrate);
     backdoor_set_config(ENC_LEFT_SIGN, ENC_RIGHT_SIGN,
                         MOTOR_LEFT_SIGN, MOTOR_RIGHT_SIGN,
                         DEFAULT_TICKS_PER_METER, DEFAULT_MAX_SPEED_MM_S);
@@ -141,7 +190,9 @@ int main(void)
            FW_VERSION_MAJOR, FW_VERSION_MINOR, (unsigned)PICO2_UART_BAUD);
     printf("*backdoor on usb cdc -- type `help`\r\n");
     if (imu_rc == 0)
-        printf("*imu LSM6DSO ready on i2c1\r\n");
+        printf("*imu LSM6DSO ready on i2c1 bias=%.3f sigma=%.3f deg/s\r\n",
+               (double)backdoor_imu_bias_degrees_s(),
+               (double)(heading_calibration_stddev() * 180.0f / PI));
     else
         printf("*imu init failed rc=%d\r\n", imu_rc);
 
@@ -181,6 +232,10 @@ int main(void)
             s_vr_mm_s = encoder_velocity_mm_s(s_odom_sample.right_delta,
                                               DEFAULT_TICKS_PER_METER,
                                               control_period_us);
+
+            s_imu_sample = imu_sample();
+            heading_update(&s_imu_sample, &s_odom_sample,
+                           cockpit_procedure_active());
 
             // FSM housekeeping: deadman and fallback ramp.
             tac_tick(t);

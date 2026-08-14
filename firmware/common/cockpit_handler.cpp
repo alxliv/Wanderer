@@ -13,6 +13,8 @@
 static cockpit_sink    s_sink;
 static cockpit_sink    s_relay;
 static cockpit_odom_fn s_odom;
+static cockpit_heading_fn s_heading;
+static cockpit_heading_zero_fn s_headingZero;
 static uint8_t         s_fwMajor, s_fwMinor;
 static float           s_ticksPerMeter;
 static float           s_halfTrackM;
@@ -64,11 +66,19 @@ void cockpit_init(cockpit_sink sink, uint8_t fw_major, uint8_t fw_minor,
     s_turnActive = false;
     s_relay = NULL;
     s_odom = NULL;
+    s_heading = NULL;
+    s_headingZero = NULL;
     line_asm_init(&s_asm);
     tac_set_change_state_callback(on_change_state);
 }
 
 void cockpit_set_odometry_provider(cockpit_odom_fn fn) { s_odom = fn; }
+void cockpit_set_heading_provider(cockpit_heading_fn fn,
+                                  cockpit_heading_zero_fn zero_fn)
+{
+    s_heading = fn;
+    s_headingZero = zero_fn;
+}
 void cockpit_set_relay_sink(cockpit_sink fn)           { s_relay = fn; }
 
 void cockpit_set_turn_config(float rate_rad_s, float overshoot_rad,
@@ -228,7 +238,7 @@ static void handle_request(char *line, uint64_t now_us)
     static const char *KNOWN[] = {
         "ping", "arm", "disarm", "estop", "clear_fault",
         "drive", "stop", "get_state", "get_odometry", "get_version",
-        "get_geometry", "proc", "abort",
+        "get_geometry", "get_heading", "zero_heading", "proc", "abort",
     };
     bool known = false;
     for (unsigned i = 0; i < sizeof KNOWN / sizeof KNOWN[0]; ++i)
@@ -310,6 +320,27 @@ static void handle_request(char *line, uint64_t now_us)
         snprintf(fields, sizeof fields, "lt=%ld rt=%ld vl=%.3f vr=%.3f",
                  (long)lt, (long)rt, (double)vl, (double)vr);
         reply_ok_fields("get_odometry", fields);
+    } else if (codec_token_eq(verb, "get_heading")) {
+        float psi = 0.0f, rate = 0.0f, bias = 0.0f;
+        bool valid = false;
+        if (s_heading)
+            s_heading(&psi, &rate, &bias, &valid);
+        char fields[112];
+        snprintf(fields, sizeof fields,
+                 "psi=%.6f rate=%.6f bias=%.6f valid=%d",
+                 (double)psi, (double)rate, (double)bias, valid ? 1 : 0);
+        reply_ok_fields("get_heading", fields);
+    } else if (codec_token_eq(verb, "zero_heading")) {
+        float psi, rate, bias;
+        bool valid = false;
+        if (s_heading)
+            s_heading(&psi, &rate, &bias, &valid);
+        if (!valid || !s_headingZero) {
+            reply_err("zero_heading", "imu_not_ready", NULL);
+            return;
+        }
+        s_headingZero();
+        reply_rc("zero_heading", TAC_OK);
     } else if (codec_token_eq(verb, "get_version")) {
         char fields[24];
         snprintf(fields, sizeof fields, "fw=%u.%u", s_fwMajor, s_fwMinor);
@@ -345,6 +376,8 @@ static void handle_request(char *line, uint64_t now_us)
         reply_rc("abort", TAC_OK);
     }
 }
+
+bool cockpit_procedure_active(void) { return s_turnActive; }
 
 // ---- byte pump -------------------------------------------------------------
 

@@ -21,7 +21,8 @@ Model (docs/Wanderer_Command_Architecture.md):
   quiet phases where the Pilot wants to keep the lease without moving.
 """
 
-from .api import Cockpit, DriveApplied, FirmwareVersion, Odometry, TurnStarted
+from .api import (Cockpit, DriveApplied, FirmwareVersion, Heading, Odometry,
+                  TurnStarted)
 from .errors import CockpitError, CockpitLinkError, CockpitNack, CockpitTimeout
 from .events import (Event, EventHandler, FaultRaised, ProcedureFinished,
                      StateChanged, TacticalState)
@@ -39,6 +40,7 @@ __all__ = [
     "EventHandler",
     "FaultRaised",
     "FirmwareVersion",
+    "Heading",
     "Odometry",
     "ProcedureFinished",
     "Reply",

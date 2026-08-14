@@ -11,6 +11,7 @@ add_executable(wanderer_airframe
     src/main.cpp
     src/encoders.c
     src/encoder_math.c
+    src/heading.c
     src/imu.c
     src/motor_output.c
     src/motors.c

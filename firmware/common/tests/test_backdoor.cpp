@@ -73,6 +73,19 @@ static void encoders_reset(void) { enc_l = enc_r = 0; enc_resets++; }
 
 static int16_t imu_raw = -321;
 static int16_t imu(void) { return imu_raw; }
+static float imu_rate = -12.5f;
+static bool imu_healthy_value = true;
+static float imu_rate_degrees_s(void) { return imu_rate; }
+static bool imu_healthy(void) { return imu_healthy_value; }
+static float imu_bias = 0.25f, imu_psi = 90.0f;
+static float imu_bias_degrees_s(void) { return imu_bias; }
+static float imu_heading_degrees(void) { return imu_psi; }
+static bool imu_calibrate(float *mean, float *stddev)
+{
+    *mean = 0.25f;
+    *stddev = 0.02f;
+    return true;
+}
 
 // ---- helpers ---------------------------------------------------------------
 
@@ -382,15 +395,27 @@ static void test_imu_read_is_diagnostic_only(void)
 
     out_clear();
     imu_raw = -321;
+    imu_healthy_value = true;
     backdoor_set_imu_raw_provider(imu);
+    backdoor_set_imu_status_providers(imu_rate_degrees_s, imu_healthy);
+    backdoor_set_imu_estimator_providers(imu_bias_degrees_s,
+                                          imu_heading_degrees, imu_calibrate);
     send("imu");
-    CHECK(strcmp(out_line(0), "=ok imu raw=-321") == 0,
-          "imu reports the uncorrected gyro-Z count without a dev lease");
+    CHECK(strcmp(out_line(0),
+                 "=ok imu raw=-321 rate=-12.50 bias=0.25 psi=90.00 ok=1") == 0,
+          "imu reports heading diagnostics without a dev lease");
+
+    out_clear();
+    imu_healthy_value = false;
+    send("imu");
+    CHECK(strcmp(out_line(0),
+                 "=ok imu raw=-321 rate=-12.50 bias=0.25 psi=90.00 ok=0") == 0,
+          "imu reports stale samples rather than hiding them");
 
     out_clear();
     send("imu cal");
-    CHECK(strcmp(out_line(0), "=err imu bad_args imu") == 0,
-          "M0 accepts only the raw diagnostic form");
+    CHECK(strcmp(out_line(0), "=ok imu cal=1 mean=0.250 sigma=0.020") == 0,
+          "imu cal reports static bias mean and standard deviation");
 }
 
 static void test_line_hygiene(void)

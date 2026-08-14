@@ -70,10 +70,23 @@ typedef void (*backdoor_enc_reset_fn)(void);
 // means the IMU did not initialize and the verb reports it as unavailable.
 typedef int16_t (*backdoor_imu_raw_fn)(void);
 
+// M1 driver status for the `imu` diagnostic. Rate is already converted to
+// degrees per second by the target; the common handler has no target config.
+typedef float (*backdoor_imu_rate_fn)(void);
+typedef bool  (*backdoor_imu_healthy_fn)(void);
+typedef float (*backdoor_imu_scalar_fn)(void);
+typedef bool  (*backdoor_imu_calibrate_fn)(float *mean_deg_s,
+                                            float *stddev_deg_s);
+
 void backdoor_init(backdoor_sink sink, uint8_t fw_major, uint8_t fw_minor);
 void backdoor_set_motor_sink(backdoor_motor_fn fn);
 void backdoor_set_encoder_provider(backdoor_enc_fn fn, backdoor_enc_reset_fn reset);
 void backdoor_set_imu_raw_provider(backdoor_imu_raw_fn fn);
+void backdoor_set_imu_status_providers(backdoor_imu_rate_fn rate,
+                                       backdoor_imu_healthy_fn healthy);
+void backdoor_set_imu_estimator_providers(backdoor_imu_scalar_fn bias,
+                                          backdoor_imu_scalar_fn psi,
+                                          backdoor_imu_calibrate_fn calibrate);
 
 // Publish the compiled-in calibration constants for the `cfg` verb.
 //

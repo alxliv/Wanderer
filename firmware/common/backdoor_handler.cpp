@@ -13,6 +13,11 @@ static backdoor_motor_fn     s_motor;
 static backdoor_enc_fn       s_enc;
 static backdoor_enc_reset_fn s_encReset;
 static backdoor_imu_raw_fn   s_imuRaw;
+static backdoor_imu_rate_fn  s_imuRate;
+static backdoor_imu_healthy_fn s_imuHealthy;
+static backdoor_imu_scalar_fn s_imuBias;
+static backdoor_imu_scalar_fn s_imuPsi;
+static backdoor_imu_calibrate_fn s_imuCalibrate;
 static uint8_t               s_fwMajor, s_fwMinor;
 static LineAssembler         s_asm;
 
@@ -65,6 +70,11 @@ void backdoor_init(backdoor_sink sink, uint8_t fw_major, uint8_t fw_minor)
     s_enc = NULL;
     s_encReset = NULL;
     s_imuRaw = NULL;
+    s_imuRate = NULL;
+    s_imuHealthy = NULL;
+    s_imuBias = NULL;
+    s_imuPsi = NULL;
+    s_imuCalibrate = NULL;
     s_wiggling = false;
     s_wiggleUntilUs = 0;
     line_asm_init(&s_asm);
@@ -79,6 +89,22 @@ void backdoor_set_encoder_provider(backdoor_enc_fn fn, backdoor_enc_reset_fn res
 }
 
 void backdoor_set_imu_raw_provider(backdoor_imu_raw_fn fn) { s_imuRaw = fn; }
+
+void backdoor_set_imu_status_providers(backdoor_imu_rate_fn rate,
+                                       backdoor_imu_healthy_fn healthy)
+{
+    s_imuRate = rate;
+    s_imuHealthy = healthy;
+}
+
+void backdoor_set_imu_estimator_providers(backdoor_imu_scalar_fn bias,
+                                          backdoor_imu_scalar_fn psi,
+                                          backdoor_imu_calibrate_fn calibrate)
+{
+    s_imuBias = bias;
+    s_imuPsi = psi;
+    s_imuCalibrate = calibrate;
+}
 
 void backdoor_set_config(int8_t enc_left_sign, int8_t enc_right_sign,
                          int8_t motor_left_sign, int8_t motor_right_sign,
@@ -224,8 +250,24 @@ static void do_enc(char *tokens[], int n)
 
 static void do_imu(char *tokens[], int n)
 {
+    if (n == 2 && codec_token_eq(tokens[1], "cal")) {
+        if (!s_imuCalibrate) {
+            reply_err("imu", "unavailable", NULL);
+            return;
+        }
+        float mean, stddev;
+        if (!s_imuCalibrate(&mean, &stddev)) {
+            reply_err("imu", "cal_failed", NULL);
+            return;
+        }
+        char fields[64];
+        snprintf(fields, sizeof fields, "cal=1 mean=%.3f sigma=%.3f",
+                 (double)mean, (double)stddev);
+        reply_ok("imu", fields);
+        return;
+    }
     if (n != 1) {
-        reply_err("imu", "bad_args", "imu");
+        reply_err("imu", "bad_args", "imu|imu cal");
         return;
     }
     if (!s_imuRaw) {
@@ -233,8 +275,18 @@ static void do_imu(char *tokens[], int n)
         return;
     }
 
-    char fields[32];
-    snprintf(fields, sizeof fields, "raw=%d", (int)s_imuRaw());
+    char fields[112];
+    if (s_imuRate && s_imuHealthy && s_imuBias && s_imuPsi) {
+        snprintf(fields, sizeof fields,
+                 "raw=%d rate=%.2f bias=%.2f psi=%.2f ok=%d",
+                 (int)s_imuRaw(), (double)s_imuRate(), (double)s_imuBias(),
+                 (double)s_imuPsi(), s_imuHealthy() ? 1 : 0);
+    } else if (s_imuRate && s_imuHealthy) {
+        snprintf(fields, sizeof fields, "raw=%d rate=%.2f ok=%d",
+                 (int)s_imuRaw(), (double)s_imuRate(), s_imuHealthy() ? 1 : 0);
+    } else {
+        snprintf(fields, sizeof fields, "raw=%d", (int)s_imuRaw());
+    }
     reply_ok("imu", fields);
 }
 
@@ -266,7 +318,7 @@ static void do_ver(void)
 
 static void do_help(void)
 {
-    emit("*backdoor verbs: dev on|off, wiggle <l> <r> <ms>, enc [reset], imu, cfg,");
+    emit("*backdoor verbs: dev on|off, wiggle <l> <r> <ms>, enc [reset], imu [cal], cfg,");
     emit("*  estop, safe, clear_fault, ver, help");
     emit("*wiggle needs dev on, which needs SAFE + no live cockpit commander");
     emit("*estop latches FAULT; clear_fault lifts it, then safe/dev on works again");

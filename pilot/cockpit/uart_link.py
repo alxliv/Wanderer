@@ -40,6 +40,9 @@ def _decode(op: str, d: wire.Downlink) -> Reply:
     if op == _link.OP_GET_ODOMETRY:
         return Reply({"left_ticks": int(f["lt"]), "right_ticks": int(f["rt"]),
                       "left_m_s": float(f["vl"]), "right_m_s": float(f["vr"])})
+    if op == _link.OP_GET_HEADING:
+        return Reply({"psi_rad": float(f["psi"]), "rate_rad_s": float(f["rate"]),
+                      "bias_rad_s": float(f["bias"]), "valid": f["valid"] == "1"})
     if op == _link.OP_GET_VERSION:
         major, minor = f["fw"].split(".", 1)
         return Reply({"major": int(major), "minor": int(minor)})

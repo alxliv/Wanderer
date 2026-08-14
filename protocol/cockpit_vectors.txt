@@ -33,6 +33,8 @@ arm|request|arm
 ARM|request|ARM
 get_state|request|get_state
 get_geometry|request|get_geometry
+get_heading|request|get_heading
+zero_heading|request|zero_heading
 drive 0.250 -0.100|request|drive|0.250|-0.100
 proc turn -1.570796 0.100|request|proc|turn|-1.570796|0.100
   drive   0.250  -0.100  |request|drive|0.250|-0.100
@@ -53,12 +55,15 @@ ok|arm||=ok arm
 ok|get_state|state=ACTIVE|=ok get_state state=ACTIVE
 ok|get_state|state=FAULT fault=ESTOP|=ok get_state state=FAULT fault=ESTOP
 ok|get_odometry|lt=15320 rt=15294 vl=0.298 vr=0.301|=ok get_odometry lt=15320 rt=15294 vl=0.298 vr=0.301
+ok|get_heading|psi=1.250000 rate=0.500000 bias=0.010000 valid=1|=ok get_heading psi=1.250000 rate=0.500000 bias=0.010000 valid=1
+ok|zero_heading||=ok zero_heading
 ok|get_version|fw=0.1|=ok get_version fw=0.1
 ok|get_geometry|tpm=10000 track=0.300|=ok get_geometry tpm=10000 track=0.300
 ok|drive||=ok drive
 ok|drive|lin=0.462 omega=0.923|=ok drive lin=0.462 omega=0.923
 ok|proc|name=turn lin=0.100 timeout=6.000|=ok proc name=turn lin=0.100 timeout=6.000
 err|drive|not_armed|state is SAFE|=err drive not_armed state is SAFE
+err|zero_heading|imu_not_ready||=err zero_heading imu_not_ready
 err|stop|not_armed|state is FALLBACK|=err stop not_armed state is FALLBACK
 err|arm|fault_latched||=err arm fault_latched
 err|?|unknown_command|mve|=err ? unknown_command mve
@@ -78,6 +83,8 @@ clear_fault|clear_fault
 stop|stop
 get_state|get_state
 get_odometry|get_odometry
+get_heading|get_heading
+zero_heading|zero_heading
 get_version|get_version
 get_geometry|get_geometry
 abort|abort
@@ -90,6 +97,7 @@ proc|-1.570796|0.1|proc turn -1.570796 0.100
 =ok ping|ok|ping|
 =ok get_state state=ACTIVE|ok|get_state|state=ACTIVE
 =ok get_odometry lt=15320 rt=15294 vl=0.298 vr=0.301|ok|get_odometry|lt=15320 rt=15294 vl=0.298 vr=0.301
+=ok get_heading psi=1.250000 rate=0.500000 bias=0.010000 valid=1|ok|get_heading|psi=1.250000 rate=0.500000 bias=0.010000 valid=1
 =ok get_geometry tpm=10000 track=0.300|ok|get_geometry|tpm=10000 track=0.300
 =ok drive|ok|drive|
 =ok drive lin=0.462 omega=0.923|ok|drive|lin=0.462 omega=0.923

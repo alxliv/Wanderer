@@ -1,4 +1,5 @@
 #pragma once
+#include <stdbool.h>
 #include <stdint.h>
 
 // The airframe's cockpit endpoint (protocol/cockpit_protocol.md): receives
@@ -19,6 +20,12 @@ typedef void (*cockpit_sink)(const char *line);
 // Optional odometry source for get_odometry; NULL reports zeros.
 typedef void (*cockpit_odom_fn)(int32_t *left_ticks, int32_t *right_ticks,
                                 float *left_m_s, float *right_m_s);
+
+// Heading estimator owned by the airframe. A NULL provider reports an invalid
+// zero estimate; zero_heading then refuses with imu_not_ready.
+typedef void (*cockpit_heading_fn)(float *psi_rad, float *rate_rad_s,
+                                   float *bias_rad_s, bool *valid);
+typedef void (*cockpit_heading_zero_fn)(void);
 
 // Wire up sink, version, geometry, and vehicle limits. Registers the tactical
 // change-state callback: every FSM transition emits `!state` (preceded by
@@ -43,6 +50,8 @@ void cockpit_init(cockpit_sink sink, uint8_t fw_major, uint8_t fw_minor,
                   float max_wheel_m_s);
 
 void cockpit_set_odometry_provider(cockpit_odom_fn fn);
+void cockpit_set_heading_provider(cockpit_heading_fn fn,
+                                  cockpit_heading_zero_fn zero_fn);
 
 // Configure the firmware-owned relative turn procedure. All values are SI;
 // a non-positive turn rate leaves the procedure unavailable.
@@ -58,3 +67,6 @@ void cockpit_feed(char c, uint64_t now_us);
 
 // Advance active procedures after tac_tick() and odometry sampling.
 void cockpit_tick(uint64_t now_us);
+
+/* True while a firmware-owned procedure is active. */
+bool cockpit_procedure_active(void);

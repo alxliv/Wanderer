@@ -95,6 +95,17 @@ class CockpitApiTest(unittest.TestCase):
         odo = self.cockpit.odometry()
         self.assertEqual(odo.left_m_s, 0.0)
 
+    def test_heading_query_and_zero(self):
+        heading = self.cockpit.heading()
+        self.assertTrue(heading.valid)
+        self.assertEqual(heading.psi_rad, 0.0)
+        self.cockpit.arm()
+        self.cockpit.drive(0.0, 0.5)
+        time.sleep(0.05)
+        self.assertGreater(self.cockpit.heading().psi_rad, 0.0)
+        self.cockpit.zero_heading()
+        self.assertEqual(self.cockpit.heading().psi_rad, 0.0)
+
     def test_firmware_turn_completes_and_restores_linear_motion(self):
         self.cockpit.arm()
         started = self.cockpit.start_turn(0.1, 0.3)

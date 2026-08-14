@@ -20,6 +20,10 @@
 #define IMU_SCL_PIN       7     /* GP7  (I2C1 SCL) */
 #define IMU_I2C_BAUD      400000
 #define IMU_LSM6DSO_ADDR  0x6B  /* SA0 high on the MinIMU-9 v6 carrier */
+/* Turning RIGHT must produce a positive yaw rate. Verify by hand in M1. */
+#define IMU_YAW_SIGN      (1)
+#define IMU_SCALE         1.0f  /* calibrated in M3 */
+#define IMU_STALE_MS      50
 
 /* ---- Cytron MDD10A channel 1 (left) ---- */
 #define M1_PWM_PIN        16    /* PWM1 (speed)      */
@@ -117,6 +121,6 @@
 
 /* ---- Firmware version (reported in INFO registers) ---- */
 #define FW_VERSION_MAJOR  0
-#define FW_VERSION_MINOR  7
+#define FW_VERSION_MINOR  10
 
 #endif /* WANDERER_CONFIG_H */

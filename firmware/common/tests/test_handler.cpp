@@ -52,6 +52,8 @@ static void relay(const char *payload)
 
 static uint64_t g_now = 1000000;   // virtual time, us
 static int32_t g_left_ticks, g_right_ticks;
+static float g_psi = 0.25f, g_rate = -0.5f, g_bias = 0.01f;
+static bool g_heading_valid = true;
 
 static void turn_odometry(int32_t *lt, int32_t *rt, float *vl, float *vr)
 {
@@ -59,6 +61,16 @@ static void turn_odometry(int32_t *lt, int32_t *rt, float *vl, float *vr)
     *rt = g_right_ticks;
     *vl = *vr = 0.0f;
 }
+
+static void heading(float *psi, float *rate, float *bias, bool *valid)
+{
+    *psi = g_psi;
+    *rate = g_rate;
+    *bias = g_bias;
+    *valid = g_heading_valid;
+}
+
+static void heading_zero(void) { g_psi = 0.0f; }
 
 static void send(const char *line)
 {
@@ -75,10 +87,15 @@ static void fresh(void)
     cockpit_init(sink, 0, 3, 3831.0f, 0.15f, 0.6f);
     cockpit_set_turn_config(0.5235988f, 0.0349066f, 0.2f);
     cockpit_set_odometry_provider(turn_odometry);
+    cockpit_set_heading_provider(heading, heading_zero);
     out_clear();
     relay_count = 0;
     g_now = 1000000;
     g_left_ticks = g_right_ticks = 0;
+    g_psi = 0.25f;
+    g_rate = -0.5f;
+    g_bias = 0.01f;
+    g_heading_valid = true;
 }
 
 #define EXPECT(idx, want) CHECK(strcmp(out_line(idx), want) == 0, \
@@ -281,6 +298,23 @@ static void test_odometry_and_overflow(void)
     EXPECT(1, "=ok ping");   // clean line right after the overflow
 }
 
+static void test_heading_queries(void)
+{
+    fresh();
+    send("get_heading");
+    EXPECT(0, "=ok get_heading psi=0.250000 rate=-0.500000 bias=0.010000 valid=1");
+
+    out_clear();
+    send("zero_heading");
+    EXPECT(0, "=ok zero_heading");
+    CHECK(g_psi == 0.0f, "zero_heading reached the estimator");
+
+    out_clear();
+    g_heading_valid = false;
+    send("zero_heading");
+    EXPECT(0, "=err zero_heading imu_not_ready");
+}
+
 static void test_turn_procedure(void)
 {
     fresh();
@@ -326,6 +360,7 @@ int main(void)
     test_lease_rules();
     test_drive_saturation();
     test_odometry_and_overflow();
+    test_heading_queries();
     test_turn_procedure();
     if (failures == 0)
         printf("OK: cockpit handler wire-level tests pass\n");
