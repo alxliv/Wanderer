@@ -12,6 +12,7 @@ static backdoor_sink         s_sink;
 static backdoor_motor_fn     s_motor;
 static backdoor_enc_fn       s_enc;
 static backdoor_enc_reset_fn s_encReset;
+static backdoor_imu_raw_fn   s_imuRaw;
 static uint8_t               s_fwMajor, s_fwMinor;
 static LineAssembler         s_asm;
 
@@ -63,6 +64,7 @@ void backdoor_init(backdoor_sink sink, uint8_t fw_major, uint8_t fw_minor)
     s_motor = NULL;
     s_enc = NULL;
     s_encReset = NULL;
+    s_imuRaw = NULL;
     s_wiggling = false;
     s_wiggleUntilUs = 0;
     line_asm_init(&s_asm);
@@ -75,6 +77,8 @@ void backdoor_set_encoder_provider(backdoor_enc_fn fn, backdoor_enc_reset_fn res
     s_enc = fn;
     s_encReset = reset;
 }
+
+void backdoor_set_imu_raw_provider(backdoor_imu_raw_fn fn) { s_imuRaw = fn; }
 
 void backdoor_set_config(int8_t enc_left_sign, int8_t enc_right_sign,
                          int8_t motor_left_sign, int8_t motor_right_sign,
@@ -218,6 +222,22 @@ static void do_enc(char *tokens[], int n)
     reply_ok("enc", fields);
 }
 
+static void do_imu(char *tokens[], int n)
+{
+    if (n != 1) {
+        reply_err("imu", "bad_args", "imu");
+        return;
+    }
+    if (!s_imuRaw) {
+        reply_err("imu", "unavailable", NULL);
+        return;
+    }
+
+    char fields[32];
+    snprintf(fields, sizeof fields, "raw=%d", (int)s_imuRaw());
+    reply_ok("imu", fields);
+}
+
 // The constants a bench tool needs to interpret what it just measured. In
 // particular enc_left_sign / enc_right_sign: `enc` reports counts with these
 // already applied, so without them a tool cannot distinguish "the configured
@@ -246,7 +266,7 @@ static void do_ver(void)
 
 static void do_help(void)
 {
-    emit("*backdoor verbs: dev on|off, wiggle <l> <r> <ms>, enc [reset], cfg,");
+    emit("*backdoor verbs: dev on|off, wiggle <l> <r> <ms>, enc [reset], imu, cfg,");
     emit("*  estop, safe, clear_fault, ver, help");
     emit("*wiggle needs dev on, which needs SAFE + no live cockpit commander");
     emit("*estop latches FAULT; clear_fault lifts it, then safe/dev on works again");
@@ -287,6 +307,8 @@ static void dispatch(char *line, uint64_t now_us)
         do_wiggle(tokens, n, now_us);
     } else if (codec_token_eq(verb, "enc")) {
         do_enc(tokens, n);
+    } else if (codec_token_eq(verb, "imu")) {
+        do_imu(tokens, n);
     } else if (codec_token_eq(verb, "cfg")) {
         do_cfg();
     } else if (codec_token_eq(verb, "ver")) {

@@ -19,6 +19,7 @@
 //   dev on | dev off            (the gate itself -- authority, not operation)
 //   wiggle <l> <r> <ms>         dev-time diagnostic (raw bench wiggle)
 //   enc [reset]                 dev-time diagnostic (read a counter)
+//   imu                         dev-time diagnostic (read gyro-Z register)
 //   cfg                         dev-time diagnostic (read a register)
 //   ver                         dev-time diagnostic (identify)
 //   help                        dev-time diagnostic (list the above)
@@ -65,9 +66,14 @@ typedef void (*backdoor_enc_fn)(int32_t *left_ticks, int32_t *right_ticks);
 // Zero the encoder counts (the `enc reset` verb). May be NULL.
 typedef void (*backdoor_enc_reset_fn)(void);
 
+// Return the IMU's uncorrected gyro-Z count for the `imu` diagnostic. NULL
+// means the IMU did not initialize and the verb reports it as unavailable.
+typedef int16_t (*backdoor_imu_raw_fn)(void);
+
 void backdoor_init(backdoor_sink sink, uint8_t fw_major, uint8_t fw_minor);
 void backdoor_set_motor_sink(backdoor_motor_fn fn);
 void backdoor_set_encoder_provider(backdoor_enc_fn fn, backdoor_enc_reset_fn reset);
+void backdoor_set_imu_raw_provider(backdoor_imu_raw_fn fn);
 
 // Publish the compiled-in calibration constants for the `cfg` verb.
 //

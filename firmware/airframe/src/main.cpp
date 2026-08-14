@@ -28,6 +28,7 @@
 #include "config.h"
 #include "encoders.h"
 #include "encoder_math.h"
+#include "imu.h"
 #include "motors.h"
 
 static uint64_t now_us(void)
@@ -115,6 +116,7 @@ int main(void)
     motors_init();
     encoders_init();
     encoders_reset();
+    const int imu_rc = imu_init();
 
     tac_init();
     cockpit_init(cockpit_line_out, FW_VERSION_MAJOR, FW_VERSION_MINOR,
@@ -129,6 +131,8 @@ int main(void)
     backdoor_init(backdoor_line_out, FW_VERSION_MAJOR, FW_VERSION_MINOR);
     backdoor_set_motor_sink(backdoor_motor_out);
     backdoor_set_encoder_provider(backdoor_encoders, encoders_reset);
+    if (imu_rc == 0)
+        backdoor_set_imu_raw_provider(imu_raw_gyro_z);
     backdoor_set_config(ENC_LEFT_SIGN, ENC_RIGHT_SIGN,
                         MOTOR_LEFT_SIGN, MOTOR_RIGHT_SIGN,
                         DEFAULT_TICKS_PER_METER, DEFAULT_MAX_SPEED_MM_S);
@@ -136,6 +140,10 @@ int main(void)
     printf("*airframe fw %u.%u cockpit on pico2 uart0 @%u\r\n",
            FW_VERSION_MAJOR, FW_VERSION_MINOR, (unsigned)PICO2_UART_BAUD);
     printf("*backdoor on usb cdc -- type `help`\r\n");
+    if (imu_rc == 0)
+        printf("*imu LSM6DSO ready on i2c1\r\n");
+    else
+        printf("*imu init failed rc=%d\r\n", imu_rc);
 
     bool usb_was_connected = stdio_usb_connected();
 

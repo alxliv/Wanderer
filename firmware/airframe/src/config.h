@@ -15,6 +15,12 @@
 #define TOF_SCL_PIN       5     /* GP5  (I2C0 SCL) */
 #define TOF_XSHUT_PIN     8     /* GP8  (optional reset/boot control, O5) */
 
+/* ---- I2C1: MinIMU-9 v6 (LSM6DSO gyro/accelerometer) ---- */
+#define IMU_SDA_PIN       6     /* GP6  (I2C1 SDA) */
+#define IMU_SCL_PIN       7     /* GP7  (I2C1 SCL) */
+#define IMU_I2C_BAUD      400000
+#define IMU_LSM6DSO_ADDR  0x6B  /* SA0 high on the MinIMU-9 v6 carrier */
+
 /* ---- Cytron MDD10A channel 1 (left) ---- */
 #define M1_PWM_PIN        16    /* PWM1 (speed)      */
 #define M1_DIR_PIN        17    /* DIR1 (direction)  */
@@ -111,6 +117,6 @@
 
 /* ---- Firmware version (reported in INFO registers) ---- */
 #define FW_VERSION_MAJOR  0
-#define FW_VERSION_MINOR  6
+#define FW_VERSION_MINOR  7
 
 #endif /* WANDERER_CONFIG_H */

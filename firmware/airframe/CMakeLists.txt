@@ -11,6 +11,7 @@ add_executable(wanderer_airframe
     src/main.cpp
     src/encoders.c
     src/encoder_math.c
+    src/imu.c
     src/motor_output.c
     src/motors.c
 )
@@ -27,6 +28,7 @@ target_link_libraries(wanderer_airframe
     wanderer_common
     pico_stdlib
     hardware_clocks
+    hardware_i2c
     hardware_pio
     hardware_pwm
     hardware_uart

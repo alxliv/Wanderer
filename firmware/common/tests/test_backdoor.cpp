@@ -69,6 +69,11 @@ static int     enc_resets;
 static void encoders(int32_t *l, int32_t *r) { *l = enc_l; *r = enc_r; }
 static void encoders_reset(void) { enc_l = enc_r = 0; enc_resets++; }
 
+// ---- fake IMU --------------------------------------------------------------
+
+static int16_t imu_raw = -321;
+static int16_t imu(void) { return imu_raw; }
+
 // ---- helpers ---------------------------------------------------------------
 
 static uint64_t g_now = 1000000;   // virtual time, us
@@ -368,6 +373,26 @@ static void test_enc_reads_and_resets(void)
     CHECK(strcmp(out_line(0), "=ok enc left=0 right=0") == 0, "counts really zeroed");
 }
 
+static void test_imu_read_is_diagnostic_only(void)
+{
+    reset_all();
+    send("imu");
+    CHECK(strcmp(out_line(0), "=err imu unavailable") == 0,
+          "uninitialized IMU reports its failed bring-up");
+
+    out_clear();
+    imu_raw = -321;
+    backdoor_set_imu_raw_provider(imu);
+    send("imu");
+    CHECK(strcmp(out_line(0), "=ok imu raw=-321") == 0,
+          "imu reports the uncorrected gyro-Z count without a dev lease");
+
+    out_clear();
+    send("imu cal");
+    CHECK(strcmp(out_line(0), "=err imu bad_args imu") == 0,
+          "M0 accepts only the raw diagnostic form");
+}
+
 static void test_line_hygiene(void)
 {
     reset_all();
@@ -419,6 +444,7 @@ int main(void)
     test_clear_fault_refused_without_a_fault();
     test_dev_off_and_abort_stop_the_wheels();
     test_enc_reads_and_resets();
+    test_imu_read_is_diagnostic_only();
     test_line_hygiene();
     test_case_insensitive_verbs();
 
