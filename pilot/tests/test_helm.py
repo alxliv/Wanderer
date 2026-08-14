@@ -119,7 +119,7 @@ class HelmMotionCommandTests(unittest.TestCase):
         self.command("turn 90")
 
         angle_rad, linear_m_s = self.helm._cockpit.turn_request
-        self.assertAlmostEqual(angle_rad, -math.pi / 2)
+        self.assertAlmostEqual(angle_rad, math.pi / 2)
         self.assertAlmostEqual(linear_m_s, 0.3)
         self.assertEqual(self.helm._speed, 0.2)
         self.assertTrue(self.helm._engaged)

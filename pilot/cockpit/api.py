@@ -206,7 +206,8 @@ class Cockpit:
         """Start a firmware-owned relative turn and return immediately.
 
         Completion or cancellation arrives as a ``ProcedureFinished`` event.
-        Positive angles are counterclockwise, matching the wire convention.
+        Positive angles are a turn to the right (clockwise seen from above),
+        matching the wire convention.
         """
         reply = self._execute(_link.OP_PROC, angle_rad=float(angle_rad),
                               linear_m_s=float(linear_m_s))

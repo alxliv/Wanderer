@@ -307,7 +307,7 @@ class Helm:
             self._turn_result = None
         self._engaged = False
         try:
-            started = self._cockpit.start_turn(-math.radians(deg), linear_m_s)
+            started = self._cockpit.start_turn(math.radians(deg), linear_m_s)
             with self._sp_lock:
                 if self._direction != 0:
                     accepted_speed = abs(started.linear_m_s)
