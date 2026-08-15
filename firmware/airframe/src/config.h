@@ -44,11 +44,11 @@
 #define MOTOR_RIGHT_SIGN   1
 
 /* Motor DEADBAND */
-/* Measured 2026-08-12 with tools/backdoor.py, wheels
-     raised and UNLOADED -- see the caveat below. */
-#define MOTOR_DEADBAND_LEFT  55
-#define MOTOR_DEADBAND_RIGHT 35
-/* Lowest duty at which BOTH wheels reliably turn: 65. Commands
+/* Measured 2026-08-15 with tools/backdoor.py, wheels
+     raised and UNLOADED. Values are conservative observed breakaway duty. */
+#define MOTOR_DEADBAND_LEFT  80
+#define MOTOR_DEADBAND_RIGHT 40
+/* Lowest duty at which BOTH wheels reliably turn: 80. Commands
      below this move nothing; feed-forward past it or refuse them. */
 
 /* ---- Open-loop motor matching ----
@@ -121,6 +121,6 @@
 
 /* ---- Firmware version (reported in INFO registers) ---- */
 #define FW_VERSION_MAJOR  0
-#define FW_VERSION_MINOR  11
+#define FW_VERSION_MINOR  12
 
 #endif /* WANDERER_CONFIG_H */

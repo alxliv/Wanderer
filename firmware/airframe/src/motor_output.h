@@ -19,6 +19,13 @@ typedef struct {
 int16_t motor_command_apply_gain(int16_t command, uint16_t gain_permille);
 
 /*
+ * Map a non-zero logical command onto the motor's moving range. Zero remains
+ * an actual stop; full-scale remains full-scale. Apply this before per-wheel
+ * gain so a deadband measured through motors_set() retains its meaning.
+ */
+int16_t motor_command_apply_deadband(int16_t command, uint16_t deadband);
+
+/*
  * Convert a signed per-mille command into an MDD10A DIR and PWM output.
  * Positive commands use DIR=0; negative commands use DIR=1.
  * A zero command or zero limit stops the channel with PWM=0 and DIR=0.

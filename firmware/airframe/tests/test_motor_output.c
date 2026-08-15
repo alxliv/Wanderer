@@ -34,6 +34,18 @@ int main(void) {
     assert(motor_command_apply_gain(-1000, 1109) == -1000);
     assert(motor_command_apply_gain(250, 0) == 0);
 
+    /* Deadband feed-forward preserves a true stop and full-scale endpoint. */
+    assert(motor_command_apply_deadband(0, 80) == 0);
+    assert(motor_command_apply_deadband(1, 80) == 80);
+    assert(motor_command_apply_deadband(-1, 80) == -80);
+    assert(motor_command_apply_deadband(500, 80) == 540);
+    assert(motor_command_apply_deadband(-500, 80) == -540);
+    assert(motor_command_apply_deadband(1000, 80) == 1000);
+    assert(motor_command_apply_deadband(-1000, 80) == -1000);
+    assert(motor_command_apply_deadband(500, 0) == 500);
+    assert(motor_command_apply_deadband(INT16_MIN, 80) == -1000);
+    assert(motor_command_apply_deadband(1, 2000) == 1000);
+
     /* Zero command is a defined stop state. */
     expect_output(0, 1000, false, 0);
 

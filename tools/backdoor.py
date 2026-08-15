@@ -1265,6 +1265,12 @@ def console(bd: Backdoor) -> int:
                 print(note)
             print(reply)
             explain_wiggle_error(reply)
+            if reply.startswith("=ok wiggle"):
+                # The console has no background serial reader while waiting at
+                # input(). Drain this event here, otherwise it remains queued
+                # until the operator types the next command.
+                ms = int(reply_fields(reply)["ms"])
+                print(bd.await_event("!wiggle_done", timeout=ms / 1000.0 + 4.0))
             while bd.events:
                 print(bd.events.pop(0))
         except TimeoutError as e:

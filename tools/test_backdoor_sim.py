@@ -149,6 +149,31 @@ bdmod.check_wiring(bd, args, res)
 bdmod.measure_deadbands(bd, args, res)
 bdmod.report(res, args)
 
+
+class ConsoleBackdoor:
+    """Minimal client double for the console's asynchronous wiggle handling."""
+
+    notes: list[str] = []
+    events: list[str] = []
+
+    def __init__(self):
+        self.requested: list[str] = []
+        self.awaited: tuple[str, float] | None = None
+
+    def request(self, line: str) -> str:
+        self.requested.append(line)
+        return "=ok wiggle l=20 r=20 ms=500"
+
+    def await_event(self, prefix: str, timeout: float) -> str:
+        self.awaited = (prefix, timeout)
+        return "!wiggle_done timeout"
+
+
+console_bd = ConsoleBackdoor()
+console_inputs = iter(["wiggle 20 20 500", "quit"])
+bdmod.input = lambda prompt="": next(console_inputs)
+console_rc = bdmod.console(console_bd)
+
 print("\n" + "=" * 68)
 print("SIMULATION SELF-CHECK")
 print("=" * 68)
@@ -174,6 +199,10 @@ check(bad_ok is False, "phase 0 ABORTS the run when a wheel is reversed")
 check(res_bad.right_rotation_ok is False, "reversed wheel recorded as such")
 check(res_bad.cfg_motor_right_sign == MOT_RIGHT_SIGN,
       f"read configured motor signs from cfg: {res_bad.cfg_motor_right_sign}")
+check(console_rc == 0 and console_bd.requested == ["wiggle 20 20 500"],
+      "interactive console sends the requested wiggle")
+check(console_bd.awaited == ("!wiggle_done", 4.5),
+      "interactive console drains wiggle completion before the next prompt")
 check(res.cfg_left_sign == LEFT_SIGN and res.cfg_right_sign == RIGHT_SIGN,
       f"read configured signs from cfg: {res.cfg_left_sign}, {res.cfg_right_sign}")
 check(res.left_agrees is LEFT_AGREES, f"left agreement {res.left_agrees} == {LEFT_AGREES}")

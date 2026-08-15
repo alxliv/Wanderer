@@ -18,6 +18,28 @@ int16_t motor_command_apply_gain(int16_t command, uint16_t gain_permille) {
     return (int16_t)scaled;
 }
 
+int16_t motor_command_apply_deadband(int16_t command, uint16_t deadband) {
+    if (command == 0) {
+        return 0;
+    }
+    if (deadband > MOTOR_PWM_FULL_SCALE) {
+        deadband = MOTOR_PWM_FULL_SCALE;
+    }
+
+    int32_t magnitude = command;
+    if (magnitude < 0) {
+        magnitude = -magnitude;
+    }
+    if (magnitude > (int32_t)MOTOR_PWM_FULL_SCALE) {
+        magnitude = MOTOR_PWM_FULL_SCALE;
+    }
+
+    magnitude = deadband +
+                ((int32_t)(MOTOR_PWM_FULL_SCALE - deadband) * magnitude) /
+                    MOTOR_PWM_FULL_SCALE;
+    return (int16_t)(command < 0 ? -magnitude : magnitude);
+}
+
 motor_output_t motor_output_from_command(int16_t command, uint16_t max_pwm) {
     motor_output_t output = {0};
 

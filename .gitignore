@@ -1,6 +1,7 @@
 # Build artifacts
 build/
 build_common_tests/
+build_airframe_tests/
 *.o
 *.elf
 *.uf2
