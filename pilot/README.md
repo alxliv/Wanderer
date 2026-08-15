@@ -73,6 +73,13 @@ It performs confirmed, short open-loop runs, measures gyro heading change and
 encoder travel, and prints a replacement `MOTOR_RIGHT_GAIN_PERMILLE`; review,
 rebuild, and flash that value deliberately.
 
+Before using that calibration, verify the IMU and encoder sign chain with the
+read-only cockpit monitor:
+
+```sh
+python3 -m helm.imu_monitor --zero
+```
+
 ## Health service (`health/`)
 
 The Pilot host runs `wanderer-health.service`, a systemd unit that answers one

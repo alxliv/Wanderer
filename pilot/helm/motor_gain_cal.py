@@ -17,12 +17,23 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 import statistics
+import sys
 import time
 from dataclasses import dataclass
 
-from cockpit import Cockpit, CockpitError, TacticalState
+# Runnable from pilot/ as either `python3 -m helm.motor_gain_cal` or
+# `python3 helm/motor_gain_cal.py`, matching helm.py.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from cockpit import Cockpit, CockpitError, CockpitTimeout, TacticalState
 from cockpit.uart_link import UartCockpitLink
+
+if __package__:
+    from . import presets
+else:
+    import presets
 
 
 @dataclass(frozen=True)
@@ -79,6 +90,20 @@ def require_drive_confirmation(run_number: int, runs: int) -> None:
         "forward, with people and cables clear. Type DRIVE to begin: ")
     if answer.strip() != "DRIVE":
         raise KeyboardInterrupt
+
+
+def wait_for_airframe_startup(cockpit: Cockpit) -> None:
+    """Mirror Helm's tolerant startup handshake after a Pico reset."""
+    deadline = time.monotonic() + presets.AIRFRAME_STARTUP_TIMEOUT_S
+    while True:
+        try:
+            cockpit.ping()
+            return
+        except CockpitTimeout:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.0:
+                raise
+            time.sleep(min(presets.AIRFRAME_STARTUP_RETRY_PERIOD_S, remaining))
 
 
 def run_once(cockpit: Cockpit, *, speed_m_s: float, duration_s: float,
@@ -148,6 +173,7 @@ def main(argv: list[str] | None = None) -> int:
     link = UartCockpitLink(args.port, args.baud)
     with Cockpit(link, command_timeout=0.30) as cockpit:
         try:
+            wait_for_airframe_startup(cockpit)
             cockpit.arm()
             if cockpit.state() != TacticalState.ACTIVE:
                 raise RuntimeError("airframe is not ACTIVE; disarm then arm it again")

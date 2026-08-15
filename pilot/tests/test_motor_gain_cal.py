@@ -1,7 +1,9 @@
 import math
 import unittest
 
-from helm.motor_gain_cal import estimate_right_gain, wrap_pi
+from cockpit.errors import CockpitTimeout
+from helm.motor_gain_cal import (estimate_right_gain, wait_for_airframe_startup,
+                                 wrap_pi)
 
 
 class MotorGainMathTest(unittest.TestCase):
@@ -35,6 +37,20 @@ class MotorGainMathTest(unittest.TestCase):
 
     def test_heading_wrap(self):
         self.assertAlmostEqual(wrap_pi(-math.pi + 0.1 - (math.pi - 0.1)), 0.2)
+
+    def test_startup_retries_ping(self):
+        class StartingCockpit:
+            def __init__(self):
+                self.count = 0
+
+            def ping(self):
+                self.count += 1
+                if self.count < 3:
+                    raise CockpitTimeout("still starting")
+
+        cockpit = StartingCockpit()
+        wait_for_airframe_startup(cockpit)
+        self.assertEqual(cockpit.count, 3)
 
 
 
