@@ -60,6 +60,20 @@ void cockpit_set_imu_healthy_provider(cockpit_imu_healthy_fn fn);
 void cockpit_set_turn_config(float rate_rad_s, float overshoot_rad,
                              float linear_limit_m_s);
 
+// Configure the firmware-owned relative move with IMU heading hold. Integral
+// clamp is expressed as the maximum contribution of the I term, in rad/s.
+void cockpit_set_move_config(float heading_kp, float heading_ki,
+                             float heading_kd, float integral_max_rad_s,
+                             float omega_max_rad_s);
+
+// Report the motor feed-forward constants actually compiled into the running
+// airframe. This lets ground calibration tools read their starting point from
+// the Pico rather than assuming their checkout matches what was flashed.
+void cockpit_set_motor_config(uint16_t left_gain_permille,
+                              uint16_t right_gain_permille,
+                              uint16_t left_deadband_permille,
+                              uint16_t right_deadband_permille);
+
 // Future radio-modem hat: `^` payloads are handed here verbatim (spec
 // section 4). NULL (the default) drops them. Never refreshes the lease.
 void cockpit_set_relay_sink(cockpit_sink fn);

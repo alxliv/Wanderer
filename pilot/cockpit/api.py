@@ -61,6 +61,16 @@ class Geometry:
 
 
 @dataclass(frozen=True)
+class MotorConfig:
+    """Motor feed-forward settings reported by the running airframe."""
+
+    left_gain_permille: int
+    right_gain_permille: int
+    left_deadband_permille: int
+    right_deadband_permille: int
+
+
+@dataclass(frozen=True)
 class DriveApplied:
     """What the airframe actually applied for a ``drive()`` request.
 
@@ -81,6 +91,14 @@ class DriveApplied:
 @dataclass(frozen=True)
 class TurnStarted:
     """Accepted linear speed for a firmware-owned relative turn."""
+
+    linear_m_s: float
+    timeout_s: float
+
+
+@dataclass(frozen=True)
+class MoveStarted:
+    """Accepted speed for a firmware-owned relative move with heading hold."""
 
     linear_m_s: float
     timeout_s: float
@@ -224,6 +242,17 @@ class Cockpit:
         return TurnStarted(linear_m_s=reply.values["linear_m_s"],
                    timeout_s=reply.values["timeout_s"])
 
+    def start_move(self, distance_m: float, linear_m_s: float) -> MoveStarted:
+        """Start a relative move with firmware-owned IMU heading hold.
+
+        Completion or cancellation arrives as a ``ProcedureFinished`` event.
+        Distance and linear speed must have the same sign.
+        """
+        reply = self._execute(_link.OP_PROC, distance_m=float(distance_m),
+                              linear_m_s=float(linear_m_s))
+        return MoveStarted(linear_m_s=reply.values["linear_m_s"],
+                           timeout_s=reply.values["timeout_s"])
+
     def abort(self) -> None:
         """Abort an active firmware procedure; harmless when none is active."""
         self._execute(_link.OP_ABORT)
@@ -239,6 +268,15 @@ class Cockpit:
         v = reply.values
         return Odometry(left_ticks=v["left_ticks"], right_ticks=v["right_ticks"],
                         left_m_s=v["left_m_s"], right_m_s=v["right_m_s"])
+
+    def motor_config(self) -> MotorConfig:
+        """Read the motor feed-forward constants compiled into the Pico."""
+        reply = self._execute(_link.OP_GET_MOTOR_CONFIG)
+        v = reply.values
+        return MotorConfig(left_gain_permille=v["left_gain_permille"],
+                           right_gain_permille=v["right_gain_permille"],
+                           left_deadband_permille=v["left_deadband_permille"],
+                           right_deadband_permille=v["right_deadband_permille"])
 
     def heading(self) -> Heading:
         reply = self._execute(_link.OP_GET_HEADING)

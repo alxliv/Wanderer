@@ -49,6 +49,11 @@ def _decode(op: str, d: wire.Downlink) -> Reply:
     if op == _link.OP_GET_GEOMETRY:
         return Reply({"ticks_per_meter": float(f["tpm"]),
                       "track_m": float(f["track"])})
+    if op == _link.OP_GET_MOTOR_CONFIG:
+        return Reply({"left_gain_permille": int(f["lgain"]),
+                      "right_gain_permille": int(f["rgain"]),
+                      "left_deadband_permille": int(f["ldead"]),
+                      "right_deadband_permille": int(f["rdead"])})
     if op == _link.OP_PROC:
         return Reply({"linear_m_s": float(f["lin"]),
                       "timeout_s": float(f["timeout"])})

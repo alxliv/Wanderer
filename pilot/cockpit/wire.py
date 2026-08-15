@@ -22,6 +22,9 @@ def format_request(op: str, params: Optional[Dict[str, float]] = None) -> str:
         return "drive {:.3f} {:.3f}".format(
             params["linear_m_s"], params["angular_rad_s"])
     if op == "proc":
+        if "distance_m" in params:
+            return "proc move {:.6f} {:.3f}".format(
+                params["distance_m"], params["linear_m_s"])
         return "proc turn {:.6f} {:.3f}".format(
             params["angle_rad"], params["linear_m_s"])
     if params:

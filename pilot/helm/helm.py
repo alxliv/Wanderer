@@ -14,6 +14,8 @@ Vocabulary (no jargon; + is clockwise, - counterclockwise):
   bank <deg/s>                      rotate at this rate, hold until changed
   turn <deg>                        rotate BY this many degrees, then stop
                                     rotating (firmware procedure)
+  move <m>                          travel this relative distance, hold heading,
+                                    then stop (firmware procedure)
     s                                 stop movement and rotation
   state | odom | version | geometry queries
   help | quit
@@ -242,6 +244,8 @@ class Helm:
                      "(counterclockwise)" if dps < 0 else "(straight)"))
         elif cmd == "turn":
             self._turn(float(tok[1]))
+        elif cmd == "move":
+            self._relative_move(float(tok[1]))
         elif cmd == "state":
             st = self._cockpit.state()
             self._state = st
@@ -339,6 +343,50 @@ class Helm:
             with self._sp_lock:
                 self._bank_dps = 0.0
             self._engaged = self._state == TacticalState.ACTIVE
+
+    # ---- firmware-owned relative move procedure --------------------------
+
+    def _relative_move(self, distance_m: float) -> None:
+        """Travel a signed relative distance while the Pico holds heading."""
+        if not math.isfinite(distance_m) or distance_m == 0.0:
+            raise ValueError
+        with self._sp_lock:
+            linear_m_s = math.copysign(self._speed, distance_m)
+            self._direction = 0
+            self._bank_dps = 0.0
+        with self._turn_cv:
+            self._turn_result = None
+        # The streamer changes from drive commands to pings while the Pico
+        # owns the procedure, so it preserves the deadman without overriding
+        # the heading controller.
+        self._engaged = False
+        try:
+            started = self._cockpit.start_move(distance_m, linear_m_s)
+            print(f"moving {distance_m:g} m at {started.linear_m_s:g} m/s ...",
+                  flush=True)
+            deadline = time.monotonic() + started.timeout_s + 1.0
+            with self._turn_cv:
+                while self._turn_result is None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0.0:
+                        break
+                    self._turn_cv.wait(remaining)
+                result = self._turn_result
+            if result is None:
+                self._cockpit.abort()
+                print("move outcome timed out")
+            elif result.outcome == "DONE":
+                print("move complete")
+            else:
+                detail = f" ({result.reason})" if result.reason else ""
+                print(f"move {result.outcome.lower()}{detail}")
+        except KeyboardInterrupt:
+            print("\nmove aborted")
+            self._cockpit.abort()
+        finally:
+            # A completed move is intentionally terminal: do not resume the
+            # preceding continuous drive order.
+            self._engaged = False
 
 
 def main(argv=None) -> int:

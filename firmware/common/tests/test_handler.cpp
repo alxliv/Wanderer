@@ -88,6 +88,8 @@ static void fresh(void)
     // 0.6 m/s -- the rover's real geometry and DEFAULT_MAX_SPEED_MM_S.
     cockpit_init(sink, 0, 3, 3831.0f, 0.15f, 0.6f);
     cockpit_set_turn_config(0.5235988f, 0.0349066f, 0.2f);
+    cockpit_set_move_config(2.0f, 0.5f, 0.1f, 0.3f, 0.5f);
+    cockpit_set_motor_config(1000, 841, 80, 40);
     cockpit_set_odometry_provider(turn_odometry);
     cockpit_set_heading_provider(heading, heading_zero);
     cockpit_set_imu_healthy_provider(imu_healthy);
@@ -319,6 +321,13 @@ static void test_heading_queries(void)
     EXPECT(0, "=err zero_heading imu_not_ready");
 }
 
+static void test_motor_config_query(void)
+{
+    fresh();
+    send("get_motor_config");
+    EXPECT(0, "=ok get_motor_config lgain=1000 rgain=841 ldead=80 rdead=40");
+}
+
 static void test_turn_procedure(void)
 {
     fresh();
@@ -388,6 +397,54 @@ static void test_turn_imu_guards(void)
           "stale IMU stops rather than continuing the turn");
 }
 
+static void test_move_procedure(void)
+{
+    fresh();
+    send("arm");
+    out_clear();
+    send("proc move 1.000 0.200");
+    EXPECT(0, "=ok proc name=move lin=0.200 timeout=8.000");
+    CHECK(tac_target_left() == 200 && tac_target_right() == 200,
+          "move starts straight at the requested speed");
+
+    // A positive current heading is an unwanted right turn. The corrective
+    // omega must slow the left wheel and speed the right wheel to steer left.
+    out_clear();
+    g_psi = 0.35f;
+    g_rate = 0.0f;
+    cockpit_tick(g_now + 10000);
+    CHECK(tac_target_left() < 200 && tac_target_right() > 200,
+          "move PID mixes heading correction into the wheel pair");
+
+    out_clear();
+    g_left_ticks = g_right_ticks = 3831;
+    cockpit_tick(g_now + 20000);
+    EXPECT(0, "!proc name=move outcome=DONE");
+    CHECK(tac_target_left() == 0 && tac_target_right() == 0,
+          "completed move stops rather than restoring prior motion");
+
+    fresh();
+    send("arm");
+    out_clear();
+    g_heading_valid = false;
+    send("proc move 1.000 0.200");
+    EXPECT(0, "=err proc imu_not_ready");
+
+    out_clear();
+    g_heading_valid = true;
+    send("proc move 1.000 -0.200");
+    EXPECT(0, "=err proc bad_args distance and linear must agree");
+
+    out_clear();
+    send("proc move 1.000 0.200");
+    out_clear();
+    g_imu_healthy = false;
+    cockpit_tick(g_now + 10000);
+    EXPECT(0, "!proc name=move outcome=ABORTED reason=imu_stale");
+    CHECK(tac_target_left() == 0 && tac_target_right() == 0,
+          "stale IMU stops an active move");
+}
+
 int main(void)
 {
     test_handshake_and_motion();
@@ -397,8 +454,10 @@ int main(void)
     test_drive_saturation();
     test_odometry_and_overflow();
     test_heading_queries();
+    test_motor_config_query();
     test_turn_procedure();
     test_turn_imu_guards();
+    test_move_procedure();
     if (failures == 0)
         printf("OK: cockpit handler wire-level tests pass\n");
     else

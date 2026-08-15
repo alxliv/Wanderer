@@ -51,10 +51,10 @@ class WireVectorsTest(unittest.TestCase):
                         "linear_m_s": float(lin),
                         "angular_rad_s": float(ang)})
                 elif fields[0] == "proc":
-                    op, angle, linear, expected = fields
-                    got = wire.format_request(op, {
-                        "angle_rad": float(angle),
-                        "linear_m_s": float(linear)})
+                    op, name, value, linear, expected = fields
+                    params = {"linear_m_s": float(linear)}
+                    params["angle_rad" if name == "turn" else "distance_m"] = float(value)
+                    got = wire.format_request(op, params)
                 else:
                     op, expected = fields
                     got = wire.format_request(op)

@@ -140,7 +140,8 @@ One wire verb per `OP_*` constant in `pilot/cockpit/link.py`, same spelling:
 | `zero_heading`| —                             | —                                  | `imu_not_ready` |
 | `get_version` | —                             | `fw=<major>.<minor>`               | —                       |
 | `get_geometry`| —                             | `tpm=<ticks/m> track=<m>`          | —                       |
-| `proc`        | `turn <angle_rad> <linear_m_s>` | `name=turn lin=<m/s> timeout=<s>` | `not_armed`, `bad_args` |
+| `get_motor_config` | —                         | `lgain=<‰> rgain=<‰> ldead=<‰> rdead=<‰>` | —              |
+| `proc`        | `turn <angle_rad> <linear_m_s>` or `move <distance_m> <linear_m_s>` | `name=<turn\|move> lin=<m/s> timeout=<s>` | `not_armed`, `bad_args`, `imu_not_ready` |
 | `abort`       | —                             | —                                  | —                       |
 
 `get_geometry` reports the drivetrain geometry the airframe itself uses:
@@ -153,26 +154,35 @@ geometry only: performance limits (wheel speed etc.) are *not* here — a future
 limit by observing scaled `drive` replies, per this section. Values are plain
 decimals; like every query it works in all states.
 
+`get_motor_config` reports the motor feed-forward constants in the running
+airframe. Ground-load calibration starts from these flashed values rather than
+trusting an adjacent source checkout.
+
 Field conventions follow the Base protocol: FSM states and fault codes by
 **name** (`SAFE`, `ACTIVE`, `FALLBACK`, `FAULT`; `ESTOP`, ...), booleans `0`/`1`,
 new fields may be appended at any time without a protocol revision.
 
-### Firmware-owned relative turn
+### Firmware-owned relative procedures
 
-`proc turn <angle_rad> <linear_m_s>` starts a nonblocking encoder-closed turn.
+`proc turn <angle_rad> <linear_m_s>` starts a nonblocking gyro-closed turn.
 Angles follow the body frame of architecture §2a: **positive is a turn to the
 right** (clockwise seen from above), as does `drive`'s `omega`. The firmware
 chooses turn rate, overshoot compensation, and the maximum linear speed during
 the maneuver. `lin` reports the accepted signed linear speed; `timeout` is the
 firmware's maximum procedure duration so a client can bound its wait.
 
-The procedure records wheel ticks at acceptance and closes heading using the
-airframe's own `ticks_per_meter` and `track` calibration. On completion it
-removes angular velocity and restores straight motion at `lin`. `abort` does
-the same but reports an aborted outcome. A `drive` received while the turn is
-active is refused with `busy`; `stop`, `disarm`, and `estop` preempt the turn.
-Commander silence still enters FALLBACK and aborts the procedure without
-restoring motion.
+`proc move <distance_m> <linear_m_s>` starts a nonblocking relative move. The
+distance and speed must have the same sign. At acceptance the firmware latches
+the gyro heading, tracks distance from the mean signed encoder travel, and
+mixes a bounded PID heading correction into the two wheel targets. It stops on
+the requested distance; it does not restore any prior `drive` velocity.
+
+Both procedures require a valid, fresh IMU at acceptance and abort with
+`reason=imu_stale` if it becomes unavailable. A `drive` received while either
+procedure is active is refused with `busy`; `stop`, `disarm`, and `estop`
+preempt it. `abort` restores straight motion at `lin` only for `turn`; it stops
+for `move`. Commander silence still enters FALLBACK and aborts the procedure
+without restoring motion.
 
 ### `drive` beyond what the vehicle can deliver
 

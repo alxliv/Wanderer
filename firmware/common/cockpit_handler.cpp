@@ -1,5 +1,6 @@
 #include "cockpit_handler.h"
 
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -23,12 +24,25 @@ static float           s_maxWheelMs;
 static float           s_turnRateRadS;
 static float           s_turnOvershootRad;
 static float           s_turnLinearLimitMs;
+static float           s_headingKp, s_headingKi, s_headingKd;
+static float           s_headingIntegralMaxRadS;
+static float           s_headingOmegaMaxRadS;
+static uint16_t        s_motorLeftGain, s_motorRightGain;
+static uint16_t        s_motorLeftDeadband, s_motorRightDeadband;
 static bool            s_turnActive;
 static float           s_turnAngleRad;
 static float           s_turnLinearMs;
 static float           s_turnLastPsiRad;
 static float           s_turnProgressRad;
 static uint64_t        s_turnDeadlineUs;
+static bool            s_moveActive;
+static float           s_moveDistanceM;
+static float           s_moveLinearMs;
+static int32_t         s_moveStartLeft, s_moveStartRight;
+static float           s_movePsiRefRad;
+static float           s_moveHeadingIntegral;
+static uint64_t        s_moveLastControlUs;
+static uint64_t        s_moveDeadlineUs;
 static LineAssembler   s_asm;
 
 static void emit(const char *line)
@@ -65,7 +79,13 @@ void cockpit_init(cockpit_sink sink, uint8_t fw_major, uint8_t fw_minor,
     s_turnRateRadS = 0.0f;
     s_turnOvershootRad = 0.0f;
     s_turnLinearLimitMs = 0.0f;
+    s_headingKp = s_headingKi = s_headingKd = 0.0f;
+    s_headingIntegralMaxRadS = 0.0f;
+    s_headingOmegaMaxRadS = 0.0f;
+    s_motorLeftGain = s_motorRightGain = 0;
+    s_motorLeftDeadband = s_motorRightDeadband = 0;
     s_turnActive = false;
+    s_moveActive = false;
     s_relay = NULL;
     s_odom = NULL;
     s_heading = NULL;
@@ -94,6 +114,28 @@ void cockpit_set_turn_config(float rate_rad_s, float overshoot_rad,
     s_turnRateRadS = rate_rad_s;
     s_turnOvershootRad = overshoot_rad;
     s_turnLinearLimitMs = linear_limit_m_s;
+}
+
+void cockpit_set_move_config(float heading_kp, float heading_ki,
+                             float heading_kd, float integral_max_rad_s,
+                             float omega_max_rad_s)
+{
+    s_headingKp = heading_kp;
+    s_headingKi = heading_ki;
+    s_headingKd = heading_kd;
+    s_headingIntegralMaxRadS = integral_max_rad_s;
+    s_headingOmegaMaxRadS = omega_max_rad_s;
+}
+
+void cockpit_set_motor_config(uint16_t left_gain_permille,
+                              uint16_t right_gain_permille,
+                              uint16_t left_deadband_permille,
+                              uint16_t right_deadband_permille)
+{
+    s_motorLeftGain = left_gain_permille;
+    s_motorRightGain = right_gain_permille;
+    s_motorLeftDeadband = left_deadband_permille;
+    s_motorRightDeadband = right_deadband_permille;
 }
 
 // ---- replies ---------------------------------------------------------------
@@ -161,14 +203,15 @@ static float drive_scale(float left_m_s, float right_m_s)
     return s_maxWheelMs / peak;
 }
 
-static void emit_proc_event(const char *outcome, const char *reason)
+static void emit_proc_event(const char *name, const char *outcome,
+                            const char *reason)
 {
     char line[CODEC_MAX_LINE];
     if (reason)
         snprintf(line, sizeof line,
-                 "!proc name=turn outcome=%s reason=%s", outcome, reason);
+                 "!proc name=%s outcome=%s reason=%s", name, outcome, reason);
     else
-        snprintf(line, sizeof line, "!proc name=turn outcome=%s", outcome);
+        snprintf(line, sizeof line, "!proc name=%s outcome=%s", name, outcome);
     emit(line);
 }
 
@@ -184,7 +227,25 @@ static void turn_finish(const char *outcome, const char *reason,
     } else if (tac_state() == TacticalState::Active) {
         tac_drive(0, 0);
     }
-    emit_proc_event(outcome, reason);
+    emit_proc_event("turn", outcome, reason);
+}
+
+static void move_finish(const char *outcome, const char *reason)
+{
+    if (!s_moveActive)
+        return;
+    s_moveActive = false;
+    if (tac_state() == TacticalState::Active)
+        tac_drive(0, 0);
+    emit_proc_event("move", outcome, reason);
+}
+
+static int64_t wrapping_tick_delta(int32_t current, int32_t start)
+{
+    const uint32_t raw = (uint32_t)current - (uint32_t)start;
+    if (raw <= (uint32_t)INT32_MAX)
+        return (int64_t)raw;
+    return (int64_t)raw - (INT64_C(1) << 32);
 }
 
 static bool turn_imu_ready(float *psi_rad)
@@ -232,6 +293,33 @@ static int start_turn(float angle_rad, float linear_m_s, uint64_t now_us,
     return TAC_OK;
 }
 
+static int start_move(float distance_m, float linear_m_s, uint64_t now_us,
+                      float psi_rad)
+{
+    if (!s_odom || !(s_ticksPerMeter > 0.0f) || !(s_halfTrackM > 0.0f)
+            || !(s_headingOmegaMaxRadS > 0.0f))
+        return TAC_ERR_NOT_SAFE;
+
+    const float speed_scale = drive_scale(linear_m_s, linear_m_s);
+    linear_m_s *= speed_scale;
+    const int rc = tac_drive(wheel_mm_s(linear_m_s), wheel_mm_s(linear_m_s));
+    if (rc != TAC_OK)
+        return rc;
+
+    float vl, vr;
+    s_odom(&s_moveStartLeft, &s_moveStartRight, &vl, &vr);
+    s_moveActive = true;
+    s_moveDistanceM = distance_m;
+    s_moveLinearMs = linear_m_s;
+    s_movePsiRefRad = psi_rad;
+    s_moveHeadingIntegral = 0.0f;
+    s_moveLastControlUs = now_us;
+    s_moveDeadlineUs = now_us + (uint64_t)(fabsf(distance_m / linear_m_s)
+                                            * 1000000.0f)
+                        + UINT64_C(3000000);
+    return TAC_OK;
+}
+
 // ---- request dispatch ------------------------------------------------------
 
 static void handle_request(char *line, uint64_t now_us)
@@ -249,7 +337,7 @@ static void handle_request(char *line, uint64_t now_us)
     static const char *KNOWN[] = {
         "ping", "arm", "disarm", "estop", "clear_fault",
         "drive", "stop", "get_state", "get_odometry", "get_version",
-        "get_geometry", "get_heading", "zero_heading", "proc", "abort",
+        "get_geometry", "get_motor_config", "get_heading", "zero_heading", "proc", "abort",
     };
     bool known = false;
     for (unsigned i = 0; i < sizeof KNOWN / sizeof KNOWN[0]; ++i)
@@ -267,9 +355,11 @@ static void handle_request(char *line, uint64_t now_us)
         reply_rc("arm", tac_arm());
     } else if (codec_token_eq(verb, "disarm")) {
         turn_finish("ABORTED", "disarm", false);
+        move_finish("ABORTED", "disarm");
         reply_rc("disarm", tac_disarm());
     } else if (codec_token_eq(verb, "estop")) {
         turn_finish("ABORTED", "estop", false);
+        move_finish("ABORTED", "estop");
         reply_rc("estop", tac_estop());
     } else if (codec_token_eq(verb, "clear_fault")) {
         // ESTOP's condition is definitionally gone once commanded away
@@ -277,10 +367,11 @@ static void handle_request(char *line, uint64_t now_us)
         reply_rc("clear_fault", tac_clear_fault(true));
     } else if (codec_token_eq(verb, "stop")) {
         turn_finish("ABORTED", "stop", false);
+        move_finish("ABORTED", "stop");
         reply_rc("stop", tac_stop());
     } else if (codec_token_eq(verb, "drive")) {
-        if (s_turnActive) {
-            reply_err("drive", "busy", "procedure turn active");
+        if (s_turnActive || s_moveActive) {
+            reply_err("drive", "busy", "procedure active");
             return;
         }
         float lin_m_s, omega_rad_s;
@@ -361,39 +452,78 @@ static void handle_request(char *line, uint64_t now_us)
         snprintf(fields, sizeof fields, "tpm=%.3f track=%.3f",
                  (double)s_ticksPerMeter, (double)(2.0f * s_halfTrackM));
         reply_ok_fields("get_geometry", fields);
+    } else if (codec_token_eq(verb, "get_motor_config")) {
+        char fields[80];
+        snprintf(fields, sizeof fields, "lgain=%u rgain=%u ldead=%u rdead=%u",
+                 (unsigned)s_motorLeftGain, (unsigned)s_motorRightGain,
+                 (unsigned)s_motorLeftDeadband, (unsigned)s_motorRightDeadband);
+        reply_ok_fields("get_motor_config", fields);
     } else if (codec_token_eq(verb, "proc")) {
-        float angle_rad, linear_m_s;
-        if (n != 4 || !codec_token_eq(tok[1], "turn")
-                   || !codec_parse_f32(tok[2], &angle_rad)
-                   || !codec_parse_f32(tok[3], &linear_m_s)
-                   || angle_rad == 0.0f) {
-            reply_err("proc", "bad_args", "expected turn angle linear");
+        float psi_rad;
+        float value, linear_m_s;
+        const bool is_turn = n >= 2 && codec_token_eq(tok[1], "turn");
+        const bool is_move = n >= 2 && codec_token_eq(tok[1], "move");
+        if (!is_turn && !is_move) {
+            reply_err("proc", "bad_args", "expected turn or move");
             return;
         }
-        float psi_rad;
+        if (n != 4 || !codec_parse_f32(tok[2], &value)
+                   || !codec_parse_f32(tok[3], &linear_m_s)) {
+            reply_err("proc", "bad_args", "expected turn/move value linear");
+            return;
+        }
         if (!turn_imu_ready(&psi_rad)) {
             reply_err("proc", "imu_not_ready", NULL);
             return;
         }
-        if (s_turnActive)
-            turn_finish("SUPERSEDED", NULL, true);
-        const int rc = start_turn(angle_rad, linear_m_s, now_us, psi_rad);
-        if (rc != TAC_OK) {
-            reply_rc("proc", rc);
-            return;
+        if (is_turn) {
+            if (value == 0.0f) {
+                reply_err("proc", "bad_args", "expected turn angle linear");
+                return;
+            }
+            if (s_turnActive)
+                turn_finish("SUPERSEDED", NULL, true);
+            if (s_moveActive)
+                move_finish("SUPERSEDED", NULL);
+            const int rc = start_turn(value, linear_m_s, now_us, psi_rad);
+            if (rc != TAC_OK) {
+                reply_rc("proc", rc);
+                return;
+            }
+            char fields[64];
+            const double timeout_s = (double)(s_turnDeadlineUs - now_us) / 1000000.0;
+            snprintf(fields, sizeof fields, "name=turn lin=%.3f timeout=%.3f",
+                 (double)s_turnLinearMs, timeout_s);
+            reply_ok_fields("proc", fields);
+        } else {
+            if (value == 0.0f || linear_m_s == 0.0f
+                    || (value < 0.0f) != (linear_m_s < 0.0f)) {
+                reply_err("proc", "bad_args", "distance and linear must agree");
+                return;
+            }
+            if (s_turnActive)
+                turn_finish("SUPERSEDED", NULL, true);
+            if (s_moveActive)
+                move_finish("SUPERSEDED", NULL);
+            const int rc = start_move(value, linear_m_s, now_us, psi_rad);
+            if (rc != TAC_OK) {
+                reply_rc("proc", rc);
+                return;
+            }
+            char fields[64];
+            const double timeout_s = (double)(s_moveDeadlineUs - now_us) / 1000000.0;
+            snprintf(fields, sizeof fields, "name=move lin=%.3f timeout=%.3f",
+                 (double)s_moveLinearMs, timeout_s);
+            reply_ok_fields("proc", fields);
         }
-        char fields[64];
-        const double timeout_s = (double)(s_turnDeadlineUs - now_us) / 1000000.0;
-        snprintf(fields, sizeof fields, "name=turn lin=%.3f timeout=%.3f",
-             (double)s_turnLinearMs, timeout_s);
-        reply_ok_fields("proc", fields);
     } else if (codec_token_eq(verb, "abort")) {
         turn_finish("ABORTED", "command", true);
+        move_finish("ABORTED", "command");
         reply_rc("abort", TAC_OK);
     }
 }
 
-bool cockpit_procedure_active(void) { return s_turnActive; }
+bool cockpit_procedure_active(void) { return s_turnActive || s_moveActive; }
 
 // ---- byte pump -------------------------------------------------------------
 
@@ -421,29 +551,79 @@ void cockpit_feed(char c, uint64_t now_us)
 
 void cockpit_tick(uint64_t now_us)
 {
-    if (!s_turnActive)
+    if (!s_turnActive && !s_moveActive)
         return;
     if (tac_state() != TacticalState::Active) {
         const char *reason = (tac_state() == TacticalState::Fallback)
             ? "deadman" : "state";
         turn_finish("ABORTED", reason, false);
+        move_finish("ABORTED", reason);
         return;
     }
 
     float psi_rad;
     if (!turn_imu_ready(&psi_rad)) {
-        turn_finish("ABORTED", "imu_stale", false);
+        if (s_turnActive)
+            turn_finish("ABORTED", "imu_stale", false);
+        if (s_moveActive)
+            move_finish("ABORTED", "imu_stale");
         return;
     }
-    s_turnProgressRad += wrap_pi(psi_rad - s_turnLastPsiRad);
-    s_turnLastPsiRad = psi_rad;
-    const double progress = (s_turnAngleRad > 0.0f)
-        ? s_turnProgressRad : -s_turnProgressRad;
-    const double target = fmax((double)fabsf(s_turnAngleRad)
-                               - (double)s_turnOvershootRad, 0.0);
-    if (progress >= target) {
-        turn_finish("DONE", NULL, true);
-    } else if (now_us >= s_turnDeadlineUs) {
-        turn_finish("ABORTED", "timeout", true);
+    float rate_rad_s, bias_rad_s;
+    bool heading_valid;
+    s_heading(&psi_rad, &rate_rad_s, &bias_rad_s, &heading_valid);
+    (void)bias_rad_s;
+    (void)heading_valid;
+
+    if (s_turnActive) {
+        s_turnProgressRad += wrap_pi(psi_rad - s_turnLastPsiRad);
+        s_turnLastPsiRad = psi_rad;
+        const double progress = (s_turnAngleRad > 0.0f)
+            ? s_turnProgressRad : -s_turnProgressRad;
+        const double target = fmax((double)fabsf(s_turnAngleRad)
+                                   - (double)s_turnOvershootRad, 0.0);
+        if (progress >= target) {
+            turn_finish("DONE", NULL, true);
+        } else if (now_us >= s_turnDeadlineUs) {
+            turn_finish("ABORTED", "timeout", true);
+        }
+    }
+
+    if (s_moveActive) {
+        int32_t left_ticks, right_ticks;
+        float vl, vr;
+        s_odom(&left_ticks, &right_ticks, &vl, &vr);
+        const double travelled_m = ((double)wrapping_tick_delta(left_ticks, s_moveStartLeft)
+                                  + (double)wrapping_tick_delta(right_ticks, s_moveStartRight))
+                               / (2.0 * (double)s_ticksPerMeter);
+        const double progress_m = (s_moveDistanceM > 0.0f) ? travelled_m : -travelled_m;
+        if (progress_m >= fabsf(s_moveDistanceM)) {
+            move_finish("DONE", NULL);
+        } else if (now_us >= s_moveDeadlineUs) {
+            move_finish("ABORTED", "timeout");
+        } else {
+            const float dt = (float)(now_us - s_moveLastControlUs) * 1e-6f;
+            s_moveLastControlUs = now_us;
+            const float error = wrap_pi(s_movePsiRefRad - psi_rad);
+            if (dt > 0.0f && dt < 0.1f && s_headingKi > 0.0f) {
+                const float integral_limit = s_headingIntegralMaxRadS / s_headingKi;
+                s_moveHeadingIntegral += error * dt;
+                if (s_moveHeadingIntegral > integral_limit)
+                    s_moveHeadingIntegral = integral_limit;
+                if (s_moveHeadingIntegral < -integral_limit)
+                    s_moveHeadingIntegral = -integral_limit;
+            }
+            float omega = s_headingKp * error
+                        + s_headingKi * s_moveHeadingIntegral
+                        - s_headingKd * rate_rad_s;
+            if (omega > s_headingOmegaMaxRadS)
+                omega = s_headingOmegaMaxRadS;
+            if (omega < -s_headingOmegaMaxRadS)
+                omega = -s_headingOmegaMaxRadS;
+            const float left = s_moveLinearMs + omega * s_halfTrackM;
+            const float right = s_moveLinearMs - omega * s_halfTrackM;
+            const float scale = drive_scale(left, right);
+            tac_drive(wheel_mm_s(left * scale), wheel_mm_s(right * scale));
+        }
     }
 }

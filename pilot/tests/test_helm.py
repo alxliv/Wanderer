@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 from cockpit.errors import CockpitTimeout
-from cockpit.api import Cockpit, TurnStarted
+from cockpit.api import Cockpit, MoveStarted, TurnStarted
 from cockpit.events import ProcedureFinished, TacticalState
 from cockpit.sim import SimulatedCockpitLink
 from helm.helm import Helm
@@ -42,6 +42,11 @@ class StartupCockpit:
         self.event_handler(ProcedureFinished(name="turn", outcome="DONE"))
         return TurnStarted(linear_m_s=max(-0.2, min(0.2, linear_m_s)),
                            timeout_s=1.0)
+
+    def start_move(self, distance_m, linear_m_s):
+        self.move_request = (distance_m, linear_m_s)
+        self.event_handler(ProcedureFinished(name="move", outcome="DONE"))
+        return MoveStarted(linear_m_s=linear_m_s, timeout_s=1.0)
 
     def abort(self):
         self.abort_count = getattr(self, "abort_count", 0) + 1
@@ -124,6 +129,24 @@ class HelmMotionCommandTests(unittest.TestCase):
         self.assertEqual(self.helm._speed, 0.2)
         self.assertTrue(self.helm._engaged)
 
+    def test_move_uses_selected_speed_and_stops_afterward(self):
+        self.helm._state = TacticalState.ACTIVE
+        self.command("speed 0.25")
+        self.command("f")
+        self.command("move 3")
+
+        distance_m, linear_m_s = self.helm._cockpit.move_request
+        self.assertEqual(distance_m, 3.0)
+        self.assertEqual(linear_m_s, 0.25)
+        self.assertEqual(self.helm._direction, 0)
+        self.assertFalse(self.helm._engaged)
+
+    def test_move_negative_distance_uses_reverse_speed(self):
+        self.helm._state = TacticalState.ACTIVE
+        self.command("speed 0.2")
+        self.command("move -1.5")
+        self.assertEqual(self.helm._cockpit.move_request, (-1.5, -0.2))
+
 
 class HelmTurnIntegrationTests(unittest.TestCase):
     def test_turn_waits_for_firmware_and_continues_straight(self):
@@ -140,6 +163,24 @@ class HelmTurnIntegrationTests(unittest.TestCase):
 
         self.assertAlmostEqual(odometry.left_m_s, 0.1)
         self.assertAlmostEqual(odometry.right_m_s, 0.1)
+
+
+class HelmMoveIntegrationTests(unittest.TestCase):
+    def test_move_waits_for_firmware_and_stops(self):
+        cockpit = Cockpit(SimulatedCockpitLink(liveness_timeout_s=3.0),
+                          command_timeout=0.25)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            helm = Helm(cockpit, temp_dir + "/events.log")
+            with cockpit, contextlib.redirect_stdout(io.StringIO()):
+                helm.start()
+                helm.command("arm")
+                helm.command("speed 0.2")
+                helm.command("move 0.1")
+                odometry = cockpit.odometry()
+                helm.shutdown()
+
+        self.assertEqual(odometry.left_m_s, 0.0)
+        self.assertEqual(odometry.right_m_s, 0.0)
 
 
 if __name__ == "__main__":

@@ -61,6 +61,18 @@ Layout: `api.py` (Cockpit class), `link.py` (transport abstraction + op
 vocabulary), `events.py`, `errors.py`, `sim.py` (simulated airframe — an
 executable statement of what the firmware must do).
 
+For a ground-load calibration of the open-loop right-wheel gain, use the
+cockpit UART tool rather than the raised-wheel USB backdoor calibration:
+
+```sh
+# from pilot/ on the Pi; reads gains from the running Pico
+python3 -m helm.motor_gain_cal --speed 0.25
+```
+
+It performs confirmed, short open-loop runs, measures gyro heading change and
+encoder travel, and prints a replacement `MOTOR_RIGHT_GAIN_PERMILLE`; review,
+rebuild, and flash that value deliberately.
+
 ## Health service (`health/`)
 
 The Pilot host runs `wanderer-health.service`, a systemd unit that answers one

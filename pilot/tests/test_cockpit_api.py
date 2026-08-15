@@ -107,6 +107,13 @@ class CockpitApiTest(unittest.TestCase):
         self.cockpit.zero_heading()
         self.assertEqual(self.cockpit.heading().psi_rad, 0.0)
 
+    def test_motor_config_query_reports_running_feedforward(self):
+        motor = self.cockpit.motor_config()
+        self.assertEqual(motor.left_gain_permille, 1000)
+        self.assertEqual(motor.right_gain_permille, 841)
+        self.assertEqual(motor.left_deadband_permille, 80)
+        self.assertEqual(motor.right_deadband_permille, 40)
+
     def test_firmware_turn_completes_and_restores_linear_motion(self):
         self.cockpit.arm()
         started = self.cockpit.start_turn(0.1, 0.3)
@@ -146,6 +153,36 @@ class CockpitApiTest(unittest.TestCase):
             self.assertGreaterEqual(heading, target)
             self.assertLess(heading, target + 0.03)
             self.assertGreater(encoder_heading, heading * 1.8)
+        finally:
+            cockpit.close()
+
+    def test_firmware_move_holds_imu_heading_and_stops_at_distance(self):
+        link = SimulatedCockpitLink(liveness_timeout_s=3.0,
+                                    yaw_disturbance_rad_s=0.15)
+        cockpit = Cockpit(link)
+        events: "queue.Queue" = queue.Queue()
+        cockpit.on_event(events.put)
+        cockpit.open()
+        try:
+            cockpit.arm()
+            started = cockpit.start_move(0.4, 0.2)
+            self.assertAlmostEqual(started.linear_m_s, 0.2)
+
+            time.sleep(0.12)
+            # A persistent rightward yaw disturbance must make the firmware
+            # command a compensating leftward turn (left wheel slower).
+            correcting = cockpit.odometry()
+            self.assertLess(correcting.left_m_s, correcting.right_m_s)
+
+            outcome = wait_for(
+                events,
+                lambda event: (isinstance(event, ProcedureFinished)
+                               and event.name == "move"),
+                timeout=3.0)
+            self.assertEqual(outcome.outcome, "DONE")
+            stopped = cockpit.odometry()
+            self.assertEqual(stopped.left_m_s, 0.0)
+            self.assertEqual(stopped.right_m_s, 0.0)
         finally:
             cockpit.close()
 

@@ -103,6 +103,13 @@
 #define TURN_OVERSHOOT_RAD       DEG2RAD(1)  /* stop that degree early */
 #define TURN_LINEAR_LIMIT_M_S    0.15f
 
+/* ---- Relative move heading hold (M6 starting values; tune on floor) ---- */
+#define HEADING_KP                2.0f  /* s^-1 */
+#define HEADING_KI                0.5f  /* s^-2 */
+#define HEADING_KD                0.1f  /* s */
+#define HEADING_I_MAX_RAD_S       0.3f
+#define HEADING_OMEGA_MAX_RAD_S   0.5f
+
 /* ---- Control loop ---- */
 #define CONTROL_HZ        100   /* reflexive control-loop rate */
 
@@ -121,6 +128,6 @@
 
 /* ---- Firmware version (reported in INFO registers) ---- */
 #define FW_VERSION_MAJOR  0
-#define FW_VERSION_MINOR  13
+#define FW_VERSION_MINOR  15
 
 #endif /* WANDERER_CONFIG_H */

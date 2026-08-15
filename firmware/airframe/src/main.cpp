@@ -170,6 +170,11 @@ int main(void)
     cockpit_set_imu_healthy_provider(cockpit_imu_healthy_provider);
     cockpit_set_turn_config(TURN_RATE_RAD_S, TURN_OVERSHOOT_RAD,
                             TURN_LINEAR_LIMIT_M_S);
+    cockpit_set_move_config(HEADING_KP, HEADING_KI, HEADING_KD,
+                            HEADING_I_MAX_RAD_S, HEADING_OMEGA_MAX_RAD_S);
+    cockpit_set_motor_config(MOTOR_LEFT_GAIN_PERMILLE,
+                             MOTOR_RIGHT_GAIN_PERMILLE,
+                             MOTOR_DEADBAND_LEFT, MOTOR_DEADBAND_RIGHT);
     // Relay sink deliberately not set: `^` payloads are dropped until the
     // RF modem hat lands (cockpit spec section 4).
 
