@@ -141,6 +141,7 @@ One wire verb per `OP_*` constant in `pilot/cockpit/link.py`, same spelling:
 | `get_version` | —                             | `fw=<major>.<minor>`               | —                       |
 | `get_geometry`| —                             | `tpm=<ticks/m> track=<m>`          | —                       |
 | `get_motor_config` | —                         | `lgain=<‰> rgain=<‰> ldead=<‰> rdead=<‰>` | —              |
+| `get_move_status` | —                           | `a= t= h= x= e= v= p= i= d= o= l= r= s=` | —              |
 | `proc`        | `turn <angle_rad> <linear_m_s>` or `move <distance_m> <linear_m_s>` | `name=<turn\|move> lin=<m/s> timeout=<s>` | `not_armed`, `bad_args`, `imu_not_ready` |
 | `abort`       | —                             | —                                  | —                       |
 
@@ -157,6 +158,17 @@ decimals; like every query it works in all states.
 `get_motor_config` reports the motor feed-forward constants in the running
 airframe. Ground-load calibration starts from these flashed values rather than
 trusting an adjacent source checkout.
+
+`get_move_status` is the pull-based M6 diagnostic surface. It returns the
+latest heading-controller sample and retains the final sample after a move;
+`a=1` means a move is currently active. Compact integer units keep the reply
+inside the cockpit line bound: `t` is elapsed milliseconds; `h`, `x`, and `e`
+are reference heading, measured heading, and error in milliradians; `v`, `p`,
+`i`, `d`, and `o` are gyro rate, PID contributions, and applied correction in
+milliradians/second; `l` and `r` are applied wheel targets in mm/s. `s` is a
+bit mask: bit 0 means the omega clamp was reached and bit 1 means the wheel
+pair was scaled to its speed limit. The client continues to pull encoder
+travel through `get_odometry` so no telemetry is pushed through the cockpit.
 
 Field conventions follow the Base protocol: FSM states and fault codes by
 **name** (`SAFE`, `ACTIVE`, `FALLBACK`, `FAULT`; `ESTOP`, ...), booleans `0`/`1`,
@@ -504,7 +516,8 @@ re-implementing it.
 Pilot -> airframe (bare verbs):
   ping | arm | disarm | estop | clear_fault
   drive <linear_m_s> <angular_rad_s> | stop
-  get_state | get_odometry | get_heading | zero_heading | get_version | get_geometry
+  get_state | get_odometry | get_heading | get_move_status | zero_heading
+  get_version | get_geometry | get_motor_config
   ^<payload>                      (relay to Base, opaque)
 
 airframe -> Pilot (sigil + payload):

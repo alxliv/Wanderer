@@ -9,7 +9,7 @@ change fails whichever side disagrees -- that is the point.
 import pathlib
 import unittest
 
-from cockpit import wire
+from cockpit import link, uart_link, wire
 
 VECTORS = (pathlib.Path(__file__).resolve().parents[2]
            / "protocol" / "cockpit_vectors.txt")
@@ -93,6 +93,19 @@ class WireVectorsTest(unittest.TestCase):
         # Real serial lines arrive with terminators; parsing must not care.
         self.assertEqual(wire.parse_downlink("=ok ping\r\n").kind, "ok")
         self.assertEqual(wire.parse_downlink("=ok ping\n").kind, "ok")
+
+    def test_move_status_wire_units_decode_to_si(self):
+        downlink = wire.parse_downlink(
+            "=ok get_move_status a=1 t=200 h=0 x=50 e=-50 v=100 "
+            "p=-100 i=-5 d=-10 o=-115 l=138 r=162 s=3")
+        reply = uart_link._decode(link.OP_GET_MOVE_STATUS, downlink)
+        self.assertTrue(reply.values["active"])
+        self.assertEqual(reply.values["elapsed_s"], 0.2)
+        self.assertEqual(reply.values["heading_rad"], 0.05)
+        self.assertEqual(reply.values["error_rad"], -0.05)
+        self.assertEqual(reply.values["omega_rad_s"], -0.115)
+        self.assertEqual(reply.values["left_m_s"], 0.138)
+        self.assertEqual(reply.values["saturation"], 3)
 
 
 if __name__ == "__main__":

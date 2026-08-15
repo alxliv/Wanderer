@@ -33,3 +33,4 @@ Thumbs.db
 *.log
 data/
 logs/
+pilot/move_trace_*.csv

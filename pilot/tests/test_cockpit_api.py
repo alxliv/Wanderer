@@ -114,6 +114,12 @@ class CockpitApiTest(unittest.TestCase):
         self.assertEqual(motor.left_deadband_permille, 80)
         self.assertEqual(motor.right_deadband_permille, 40)
 
+    def test_move_status_is_inactive_before_first_move(self):
+        status = self.cockpit.move_status()
+        self.assertFalse(status.active)
+        self.assertEqual(status.elapsed_s, 0.0)
+        self.assertEqual(status.saturation, 0)
+
     def test_firmware_turn_completes_and_restores_linear_motion(self):
         self.cockpit.arm()
         started = self.cockpit.start_turn(0.1, 0.3)
@@ -173,6 +179,15 @@ class CockpitApiTest(unittest.TestCase):
             # command a compensating leftward turn (left wheel slower).
             correcting = cockpit.odometry()
             self.assertLess(correcting.left_m_s, correcting.right_m_s)
+            status = cockpit.move_status()
+            self.assertTrue(status.active)
+            self.assertLess(status.error_rad, 0.0)
+            self.assertLess(status.omega_rad_s, 0.0)
+            self.assertLess(status.left_m_s, status.right_m_s)
+            self.assertAlmostEqual(
+                status.omega_rad_s,
+                status.p_rad_s + status.i_rad_s + status.d_rad_s,
+                places=6)
 
             outcome = wait_for(
                 events,
@@ -183,6 +198,7 @@ class CockpitApiTest(unittest.TestCase):
             stopped = cockpit.odometry()
             self.assertEqual(stopped.left_m_s, 0.0)
             self.assertEqual(stopped.right_m_s, 0.0)
+            self.assertFalse(cockpit.move_status().active)
         finally:
             cockpit.close()
 

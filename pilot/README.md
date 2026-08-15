@@ -70,8 +70,9 @@ python3 -m helm.motor_gain_cal --speed 0.25
 ```
 
 It performs confirmed, short open-loop runs, measures gyro heading change and
-encoder travel, and prints a replacement `MOTOR_RIGHT_GAIN_PERMILLE`; review,
-rebuild, and flash that value deliberately.
+encoder travel, and prints replacement `MOTOR_LEFT_GAIN_PERMILLE` and
+`MOTOR_RIGHT_GAIN_PERMILLE` values. The weaker side remains at 1000 and the
+stronger side is attenuated; review, rebuild, and flash both deliberately.
 
 Before using that calibration, verify the IMU and encoder sign chain with the
 read-only cockpit monitor:
@@ -79,6 +80,20 @@ read-only cockpit monitor:
 ```sh
 python3 -m helm.imu_monitor --zero
 ```
+
+To diagnose the firmware-owned M6 heading loop itself, flash airframe firmware
+0.16 or newer and run one short closed-loop trace. The tool is the only cockpit
+client during the run, samples the controller and odometry at 5 Hz, and writes
+a timestamped SI-unit CSV:
+
+```sh
+python3 -m helm.move_trace --distance 0.5 --speed 0.15
+```
+
+Its console table uses degrees for heading/controller terms and metres for
+travel. Positive heading, rate, and correction are clockwise/right. `omega`
+or `wheel` in the `sat` column identifies the controller stage that reached
+its configured limit.
 
 ## Health service (`health/`)
 

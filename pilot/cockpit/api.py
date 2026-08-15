@@ -71,6 +71,30 @@ class MotorConfig:
 
 
 @dataclass(frozen=True)
+class MoveStatus:
+    """Last M6 heading-controller sample reported by the airframe.
+
+    ``active`` distinguishes a live move from the retained final sample.
+    P/I/D values are their signed angular-rate contributions. ``saturation``
+    is a bit mask: bit 0 is the omega clamp and bit 1 is wheel-pair scaling.
+    """
+
+    active: bool
+    elapsed_s: float
+    heading_ref_rad: float
+    heading_rad: float
+    error_rad: float
+    rate_rad_s: float
+    p_rad_s: float
+    i_rad_s: float
+    d_rad_s: float
+    omega_rad_s: float
+    left_m_s: float
+    right_m_s: float
+    saturation: int
+
+
+@dataclass(frozen=True)
 class DriveApplied:
     """What the airframe actually applied for a ``drive()`` request.
 
@@ -277,6 +301,20 @@ class Cockpit:
                            right_gain_permille=v["right_gain_permille"],
                            left_deadband_permille=v["left_deadband_permille"],
                            right_deadband_permille=v["right_deadband_permille"])
+
+    def move_status(self) -> MoveStatus:
+        """Read the latest M6 controller sample; retained after completion."""
+        reply = self._execute(_link.OP_GET_MOVE_STATUS)
+        v = reply.values
+        return MoveStatus(active=v["active"], elapsed_s=v["elapsed_s"],
+                          heading_ref_rad=v["heading_ref_rad"],
+                          heading_rad=v["heading_rad"],
+                          error_rad=v["error_rad"],
+                          rate_rad_s=v["rate_rad_s"],
+                          p_rad_s=v["p_rad_s"], i_rad_s=v["i_rad_s"],
+                          d_rad_s=v["d_rad_s"], omega_rad_s=v["omega_rad_s"],
+                          left_m_s=v["left_m_s"], right_m_s=v["right_m_s"],
+                          saturation=v["saturation"])
 
     def heading(self) -> Heading:
         reply = self._execute(_link.OP_GET_HEADING)

@@ -65,7 +65,7 @@
  * This is unloaded open-loop matching, not a substitute for wheel-speed PID.
  */
 #define MOTOR_LEFT_GAIN_PERMILLE   1000
-#define MOTOR_RIGHT_GAIN_PERMILLE   841
+#define MOTOR_RIGHT_GAIN_PERMILLE   800
 
 
 /* ---- Quadrature encoders (3.3 V logic; decoded via PIO) ----
@@ -128,6 +128,6 @@
 
 /* ---- Firmware version (reported in INFO registers) ---- */
 #define FW_VERSION_MAJOR  0
-#define FW_VERSION_MINOR  15
+#define FW_VERSION_MINOR  16
 
 #endif /* WANDERER_CONFIG_H */

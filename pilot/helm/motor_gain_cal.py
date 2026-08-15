@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ground-load calibration for ``MOTOR_RIGHT_GAIN_PERMILLE``.
+"""Ground-load calibration for the left/right motor gain pair.
 
 Run on the Pi, from ``pilot/``::
 
@@ -9,7 +9,7 @@ The tool performs short *open-loop* straight-drive runs over the cockpit UART.
 It must not use ``proc move``: that procedure holds heading and would conceal
 the exact wheel mismatch this tool is measuring.  For each run it measures the
 gyro heading change and mean encoder travel, derives the left/right travel
-ratio, and prints a median replacement gain.  It never edits or flashes
+ratio, and prints a median replacement gain pair. It never edits or flashes
 ``config.h`` itself.
 """
 
@@ -44,6 +44,8 @@ class RunMeasurement:
     heading_change_rad: float
     left_travel_m: float
     right_travel_m: float
+    right_to_left_gain_ratio: float
+    proposed_left_gain: int
     proposed_right_gain: int
 
 
@@ -52,18 +54,34 @@ def wrap_pi(angle_rad: float) -> float:
     return (angle_rad + math.pi) % (2.0 * math.pi) - math.pi
 
 
-def estimate_right_gain(*, current_right_gain: int, left_tick_delta: int,
-                         right_tick_delta: int, ticks_per_meter: float,
-                         track_m: float, heading_change_rad: float) -> RunMeasurement:
-    """Estimate the right gain which equalizes a forward ground run.
+def normalized_gain_pair(right_to_left_ratio: float) -> tuple[int, int]:
+    """Fit a gain ratio into 1..1000 while retaining maximum authority."""
+    if not math.isfinite(right_to_left_ratio) or right_to_left_ratio <= 0.0:
+        raise ValueError("motor gain ratio must be positive and finite")
+    if right_to_left_ratio <= 1.0:
+        left_gain = 1000
+        right_gain = round(1000.0 * right_to_left_ratio)
+    else:
+        left_gain = round(1000.0 / right_to_left_ratio)
+        right_gain = 1000
+    if not 1 <= left_gain <= 1000 or not 1 <= right_gain <= 1000:
+        raise ValueError("estimated gain ratio is outside the usable range")
+    return left_gain, right_gain
+
+
+def estimate_gain_pair(*, current_left_gain: int, current_right_gain: int,
+                       left_tick_delta: int, right_tick_delta: int,
+                       ticks_per_meter: float, track_m: float,
+                       heading_change_rad: float) -> RunMeasurement:
+    """Estimate the gain pair which equalizes a forward ground run.
 
     The gyro supplies the physical differential travel:
     ``left - right = track * heading_change``.  The encoders supply the mean
     signed travel.  Combining those two measurements avoids treating a small
     left/right encoder scale difference as motor mismatch.
     """
-    if current_right_gain <= 0:
-        raise ValueError("current right gain must be positive")
+    if current_left_gain <= 0 or current_right_gain <= 0:
+        raise ValueError("current motor gains must be positive")
     if ticks_per_meter <= 0.0 or track_m <= 0.0:
         raise ValueError("airframe geometry is invalid")
 
@@ -74,14 +92,19 @@ def estimate_right_gain(*, current_right_gain: int, left_tick_delta: int,
     if mean_m <= 0.0 or left_m <= 0.0 or right_m <= 0.0:
         raise ValueError("run was not a usable forward roll")
 
-    gain = round(current_right_gain * left_m / right_m)
-    if not 1 <= gain <= 1000:
-        raise ValueError("estimated gain is outside the valid 1..1000 range")
+    # Observed response L/R = (motor_L * gain_L) / (motor_R * gain_R).
+    # Therefore the gain ratio which makes the responses equal is:
+    # new_R/new_L = observed_L/observed_R * current_R/current_L.
+    gain_ratio = ((left_m / right_m)
+                  * (current_right_gain / current_left_gain))
+    left_gain, right_gain = normalized_gain_pair(gain_ratio)
     return RunMeasurement(mean_travel_m=mean_m,
                           heading_change_rad=heading_change_rad,
                           left_travel_m=left_m,
                           right_travel_m=right_m,
-                          proposed_right_gain=gain)
+                          right_to_left_gain_ratio=gain_ratio,
+                          proposed_left_gain=left_gain,
+                          proposed_right_gain=right_gain)
 
 
 def require_drive_confirmation(run_number: int, runs: int) -> None:
@@ -107,7 +130,8 @@ def wait_for_airframe_startup(cockpit: Cockpit) -> None:
 
 
 def run_once(cockpit: Cockpit, *, speed_m_s: float, duration_s: float,
-             settle_s: float, current_right_gain: int) -> RunMeasurement:
+             settle_s: float, current_left_gain: int,
+             current_right_gain: int) -> RunMeasurement:
     geometry = cockpit.geometry()
     before_heading = cockpit.heading()
     before_odometry = cockpit.odometry()
@@ -129,7 +153,8 @@ def run_once(cockpit: Cockpit, *, speed_m_s: float, duration_s: float,
     if not after_heading.valid:
         raise RuntimeError("IMU heading became invalid during the run")
 
-    return estimate_right_gain(
+    return estimate_gain_pair(
+        current_left_gain=current_left_gain,
         current_right_gain=current_right_gain,
         left_tick_delta=after_odometry.left_ticks - before_odometry.left_ticks,
         right_tick_delta=after_odometry.right_ticks - before_odometry.right_ticks,
@@ -188,12 +213,14 @@ def main(argv: list[str] | None = None) -> int:
                 measurement = run_once(cockpit, speed_m_s=args.speed,
                                        duration_s=args.duration,
                                        settle_s=args.settle,
+                                       current_left_gain=left_gain,
                                        current_right_gain=right_gain)
                 measurements.append(measurement)
                 print(f"  heading={math.degrees(measurement.heading_change_rad):+.2f} deg"
                       f"  travel L/R={measurement.left_travel_m:.3f}/"
                       f"{measurement.right_travel_m:.3f} m"
-                      f"  proposed right gain={measurement.proposed_right_gain}")
+                      f"  proposed gains L/R={measurement.proposed_left_gain}/"
+                      f"{measurement.proposed_right_gain}")
         except KeyboardInterrupt:
             print("\nAborted.")
             return 130
@@ -210,15 +237,17 @@ def main(argv: list[str] | None = None) -> int:
             except CockpitError:
                 pass
 
-    proposal = round(statistics.median(m.proposed_right_gain for m in measurements))
+    median_ratio = statistics.median(
+        m.right_to_left_gain_ratio for m in measurements)
+    proposed_left, proposed_right = normalized_gain_pair(median_ratio)
     headings = [math.degrees(m.heading_change_rad) for m in measurements]
     print("\nRESULT")
     print(f"  current gains:      left={left_gain}, right={right_gain}")
     print(f"  heading changes:    {', '.join(f'{value:+.2f}' for value in headings)} deg")
-    print(f"  median proposal:    {proposal}")
+    print(f"  median proposal:    left={proposed_left}, right={proposed_right}")
     print("\nReview, then rebuild and flash:")
-    print(f"#define MOTOR_LEFT_GAIN_PERMILLE    {left_gain}  /* reference */")
-    print(f"#define MOTOR_RIGHT_GAIN_PERMILLE   {proposal}")
+    print(f"#define MOTOR_LEFT_GAIN_PERMILLE    {proposed_left}")
+    print(f"#define MOTOR_RIGHT_GAIN_PERMILLE   {proposed_right}")
     print("\nRepeat this calibration once after flashing. Then run `helm` ->"
           " `speed 0.25`, `move 3` to validate M6 heading hold.")
     return 0

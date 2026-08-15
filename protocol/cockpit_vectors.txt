@@ -35,6 +35,7 @@ get_state|request|get_state
 get_geometry|request|get_geometry
 get_motor_config|request|get_motor_config
 get_heading|request|get_heading
+get_move_status|request|get_move_status
 zero_heading|request|zero_heading
 drive 0.250 -0.100|request|drive|0.250|-0.100
 proc turn -1.570796 0.100|request|proc|turn|-1.570796|0.100
@@ -62,6 +63,7 @@ ok|zero_heading||=ok zero_heading
 ok|get_version|fw=0.1|=ok get_version fw=0.1
 ok|get_geometry|tpm=10000 track=0.300|=ok get_geometry tpm=10000 track=0.300
 ok|get_motor_config|lgain=1000 rgain=841 ldead=80 rdead=40|=ok get_motor_config lgain=1000 rgain=841 ldead=80 rdead=40
+ok|get_move_status|a=1 t=200 h=0 x=50 e=-50 v=100 p=-100 i=-5 d=-10 o=-115 l=138 r=162 s=0|=ok get_move_status a=1 t=200 h=0 x=50 e=-50 v=100 p=-100 i=-5 d=-10 o=-115 l=138 r=162 s=0
 ok|drive||=ok drive
 ok|drive|lin=0.462 omega=0.923|=ok drive lin=0.462 omega=0.923
 ok|proc|name=turn lin=0.100 timeout=6.000|=ok proc name=turn lin=0.100 timeout=6.000
@@ -93,6 +95,7 @@ zero_heading|zero_heading
 get_version|get_version
 get_geometry|get_geometry
 get_motor_config|get_motor_config
+get_move_status|get_move_status
 abort|abort
 drive|0.25|-0.1|drive 0.250 -0.100
 drive|0|0|drive 0.000 0.000
@@ -107,6 +110,7 @@ proc|move|1.0|0.2|proc move 1.000000 0.200
 =ok get_heading psi=1.250000 rate=0.500000 bias=0.010000 valid=1|ok|get_heading|psi=1.250000 rate=0.500000 bias=0.010000 valid=1
 =ok get_geometry tpm=10000 track=0.300|ok|get_geometry|tpm=10000 track=0.300
 =ok get_motor_config lgain=1000 rgain=841 ldead=80 rdead=40|ok|get_motor_config|lgain=1000 rgain=841 ldead=80 rdead=40
+=ok get_move_status a=1 t=200 h=0 x=50 e=-50 v=100 p=-100 i=-5 d=-10 o=-115 l=138 r=162 s=0|ok|get_move_status|a=1 t=200 h=0 x=50 e=-50 v=100 p=-100 i=-5 d=-10 o=-115 l=138 r=162 s=0
 =ok drive|ok|drive|
 =ok drive lin=0.462 omega=0.923|ok|drive|lin=0.462 omega=0.923
 =err drive not_armed state is SAFE|err|drive|not_armed|state is SAFE

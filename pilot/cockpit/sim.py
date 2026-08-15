@@ -84,8 +84,23 @@ class SimulatedCockpitLink(CockpitLink):
         self._move_start_right = 0.0
         self._move_heading_ref = 0.0
         self._move_integral = 0.0
+        self._move_started = 0.0
         self._move_last_control = 0.0
         self._move_deadline = 0.0
+        self._move_status = {
+            "elapsed_s": 0.0,
+            "heading_ref_rad": 0.0,
+            "heading_rad": 0.0,
+            "error_rad": 0.0,
+            "rate_rad_s": 0.0,
+            "p_rad_s": 0.0,
+            "i_rad_s": 0.0,
+            "d_rad_s": 0.0,
+            "omega_rad_s": 0.0,
+            "left_m_s": 0.0,
+            "right_m_s": 0.0,
+            "saturation": 0,
+        }
         self._heading = 0.0
         self._heading_rate = 0.0
         self._heading_bias = 0.0
@@ -212,7 +227,7 @@ class SimulatedCockpitLink(CockpitLink):
             self._heading = 0.0
             return Reply()
         if op == _link.OP_GET_VERSION:
-            return Reply({"major": 0, "minor": 15})
+            return Reply({"major": 0, "minor": 16})
         if op == _link.OP_GET_GEOMETRY:
             # The airframe owns its geometry (spec section 3); the sim, as the
             # firmware's mirror, reports the same numbers it simulates with.
@@ -223,6 +238,8 @@ class SimulatedCockpitLink(CockpitLink):
                           "right_gain_permille": MOTOR_RIGHT_GAIN_PERMILLE,
                           "left_deadband_permille": MOTOR_DEADBAND_LEFT,
                           "right_deadband_permille": MOTOR_DEADBAND_RIGHT})
+        if op == _link.OP_GET_MOVE_STATUS:
+            return Reply({"active": self._move_active, **self._move_status})
         raise CockpitNack("bad_op", op)
 
     def _drive_scale(self, left: float, right: float) -> float:
@@ -329,6 +346,21 @@ class SimulatedCockpitLink(CockpitLink):
         self._move_heading_ref = self._heading
         self._move_integral = 0.0
         self._move_last_control = time.monotonic()
+        self._move_started = self._move_last_control
+        self._move_status = {
+            "elapsed_s": 0.0,
+            "heading_ref_rad": self._move_heading_ref,
+            "heading_rad": self._heading,
+            "error_rad": 0.0,
+            "rate_rad_s": 0.0,
+            "p_rad_s": 0.0,
+            "i_rad_s": 0.0,
+            "d_rad_s": 0.0,
+            "omega_rad_s": 0.0,
+            "left_m_s": linear,
+            "right_m_s": linear,
+            "saturation": 0,
+        }
         timeout_s = abs(distance / linear) + 3.0
         self._move_deadline = self._move_last_control + timeout_s
         return Reply({"linear_m_s": linear, "timeout_s": timeout_s})
@@ -368,14 +400,35 @@ class SimulatedCockpitLink(CockpitLink):
             integral_limit = HEADING_I_MAX_RAD_S / HEADING_KI
             self._move_integral = max(-integral_limit, min(
                 integral_limit, self._move_integral + error * dt))
-        omega = (HEADING_KP * error + HEADING_KI * self._move_integral
-                 - HEADING_KD * self._heading_rate)
+        p_term = HEADING_KP * error
+        i_term = HEADING_KI * self._move_integral
+        d_term = -HEADING_KD * self._heading_rate
+        omega = p_term + i_term + d_term
+        saturation = 0
+        if abs(omega) > HEADING_OMEGA_MAX_RAD_S:
+            saturation |= 1
         omega = max(-HEADING_OMEGA_MAX_RAD_S,
                     min(HEADING_OMEGA_MAX_RAD_S, omega))
         left = self._move_linear + omega * self._half_track
         right = self._move_linear - omega * self._half_track
         scale = self._drive_scale(left, right)
+        if scale < 1.0:
+            saturation |= 2
         self._v_left, self._v_right = left * scale, right * scale
+        self._move_status = {
+            "elapsed_s": now - self._move_started,
+            "heading_ref_rad": self._move_heading_ref,
+            "heading_rad": self._heading,
+            "error_rad": error,
+            "rate_rad_s": self._heading_rate,
+            "p_rad_s": p_term,
+            "i_rad_s": i_term,
+            "d_rad_s": d_term,
+            "omega_rad_s": omega * scale,
+            "left_m_s": self._v_left,
+            "right_m_s": self._v_right,
+            "saturation": saturation,
+        }
 
     def _enter(self, new: TacticalState) -> None:
         if new == self._state:

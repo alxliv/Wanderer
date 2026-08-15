@@ -622,8 +622,9 @@ passes. **This retires the Linux-side odometry-polling placeholder in
 `pilot/helm/` — delete it in the same commit**, so the bench tool cannot
 outlive its replacement.
 
-**M6 — `proc move` with heading hold.** The PID, anti-windup, integrator
-logging. *Done when:* the straight-line test in §11 passes.
+**M6 — `proc move` with heading hold.** The PID, anti-windup, and pull-based
+`get_move_status` telemetry expose the integrator and saturation state. *Done
+when:* the straight-line test in §11 passes.
 
 M4 is ordered before M5/M6 deliberately, per §9.
 

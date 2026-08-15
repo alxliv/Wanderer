@@ -22,7 +22,7 @@ Model (docs/Wanderer_Command_Architecture.md):
 """
 
 from .api import (Cockpit, DriveApplied, FirmwareVersion, Heading, MotorConfig,
-                  MoveStarted, Odometry, TurnStarted)
+                  MoveStarted, MoveStatus, Odometry, TurnStarted)
 from .errors import CockpitError, CockpitLinkError, CockpitNack, CockpitTimeout
 from .events import (Event, EventHandler, FaultRaised, ProcedureFinished,
                      StateChanged, TacticalState)
@@ -42,6 +42,7 @@ __all__ = [
     "FirmwareVersion",
     "Heading",
     "MoveStarted",
+    "MoveStatus",
     "MotorConfig",
     "Odometry",
     "ProcedureFinished",

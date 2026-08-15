@@ -42,6 +42,7 @@ OP_ZERO_HEADING = "zero_heading"
 OP_GET_VERSION = "get_version"
 OP_GET_GEOMETRY = "get_geometry"
 OP_GET_MOTOR_CONFIG = "get_motor_config"
+OP_GET_MOVE_STATUS = "get_move_status"
 OP_PROC = "proc"
 OP_ABORT = "abort"
 

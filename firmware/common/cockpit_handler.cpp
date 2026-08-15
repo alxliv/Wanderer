@@ -41,8 +41,20 @@ static float           s_moveLinearMs;
 static int32_t         s_moveStartLeft, s_moveStartRight;
 static float           s_movePsiRefRad;
 static float           s_moveHeadingIntegral;
+static uint64_t        s_moveStartUs;
 static uint64_t        s_moveLastControlUs;
 static uint64_t        s_moveDeadlineUs;
+static uint32_t        s_moveStatusElapsedMs;
+static float           s_moveStatusPsiRad;
+static float           s_moveStatusErrorRad;
+static float           s_moveStatusRateRadS;
+static float           s_moveStatusPRadS;
+static float           s_moveStatusIRadS;
+static float           s_moveStatusDRadS;
+static float           s_moveStatusOmegaRadS;
+static int16_t         s_moveStatusLeftMmS;
+static int16_t         s_moveStatusRightMmS;
+static uint8_t         s_moveStatusSaturation;
 static LineAssembler   s_asm;
 
 static void emit(const char *line)
@@ -86,6 +98,20 @@ void cockpit_init(cockpit_sink sink, uint8_t fw_major, uint8_t fw_minor,
     s_motorLeftDeadband = s_motorRightDeadband = 0;
     s_turnActive = false;
     s_moveActive = false;
+    s_movePsiRefRad = 0.0f;
+    s_moveHeadingIntegral = 0.0f;
+    s_moveStartUs = 0;
+    s_moveStatusElapsedMs = 0;
+    s_moveStatusPsiRad = 0.0f;
+    s_moveStatusErrorRad = 0.0f;
+    s_moveStatusRateRadS = 0.0f;
+    s_moveStatusPRadS = 0.0f;
+    s_moveStatusIRadS = 0.0f;
+    s_moveStatusDRadS = 0.0f;
+    s_moveStatusOmegaRadS = 0.0f;
+    s_moveStatusLeftMmS = 0;
+    s_moveStatusRightMmS = 0;
+    s_moveStatusSaturation = 0;
     s_relay = NULL;
     s_odom = NULL;
     s_heading = NULL;
@@ -294,7 +320,7 @@ static int start_turn(float angle_rad, float linear_m_s, uint64_t now_us,
 }
 
 static int start_move(float distance_m, float linear_m_s, uint64_t now_us,
-                      float psi_rad)
+                       float psi_rad)
 {
     if (!s_odom || !(s_ticksPerMeter > 0.0f) || !(s_halfTrackM > 0.0f)
             || !(s_headingOmegaMaxRadS > 0.0f))
@@ -313,7 +339,19 @@ static int start_move(float distance_m, float linear_m_s, uint64_t now_us,
     s_moveLinearMs = linear_m_s;
     s_movePsiRefRad = psi_rad;
     s_moveHeadingIntegral = 0.0f;
+    s_moveStartUs = now_us;
     s_moveLastControlUs = now_us;
+    s_moveStatusElapsedMs = 0;
+    s_moveStatusPsiRad = psi_rad;
+    s_moveStatusErrorRad = 0.0f;
+    s_moveStatusRateRadS = 0.0f;
+    s_moveStatusPRadS = 0.0f;
+    s_moveStatusIRadS = 0.0f;
+    s_moveStatusDRadS = 0.0f;
+    s_moveStatusOmegaRadS = 0.0f;
+    s_moveStatusLeftMmS = wheel_mm_s(linear_m_s);
+    s_moveStatusRightMmS = wheel_mm_s(linear_m_s);
+    s_moveStatusSaturation = 0;
     s_moveDeadlineUs = now_us + (uint64_t)(fabsf(distance_m / linear_m_s)
                                             * 1000000.0f)
                         + UINT64_C(3000000);
@@ -337,7 +375,8 @@ static void handle_request(char *line, uint64_t now_us)
     static const char *KNOWN[] = {
         "ping", "arm", "disarm", "estop", "clear_fault",
         "drive", "stop", "get_state", "get_odometry", "get_version",
-        "get_geometry", "get_motor_config", "get_heading", "zero_heading", "proc", "abort",
+        "get_geometry", "get_motor_config", "get_heading", "get_move_status",
+        "zero_heading", "proc", "abort",
     };
     bool known = false;
     for (unsigned i = 0; i < sizeof KNOWN / sizeof KNOWN[0]; ++i)
@@ -458,6 +497,29 @@ static void handle_request(char *line, uint64_t now_us)
                  (unsigned)s_motorLeftGain, (unsigned)s_motorRightGain,
                  (unsigned)s_motorLeftDeadband, (unsigned)s_motorRightDeadband);
         reply_ok_fields("get_motor_config", fields);
+    } else if (codec_token_eq(verb, "get_move_status")) {
+        /*
+         * Compact integer wire units keep this worst-case reply below the
+         * cockpit line bound. h/x/e are mrad; v/p/i/d/o are mrad/s; wheel
+         * targets are mm/s. Saturation is a bit mask: 1=omega, 2=wheel pair.
+         */
+        char fields[128];
+        snprintf(fields, sizeof fields,
+                 "a=%u t=%u h=%ld x=%ld e=%ld v=%ld p=%ld i=%ld d=%ld "
+                 "o=%ld l=%d r=%d s=%u",
+                 s_moveActive ? 1u : 0u,
+                 (unsigned)s_moveStatusElapsedMs,
+                 (long)lroundf(s_movePsiRefRad * 1000.0f),
+                 (long)lroundf(s_moveStatusPsiRad * 1000.0f),
+                 (long)lroundf(s_moveStatusErrorRad * 1000.0f),
+                 (long)lroundf(s_moveStatusRateRadS * 1000.0f),
+                 (long)lroundf(s_moveStatusPRadS * 1000.0f),
+                 (long)lroundf(s_moveStatusIRadS * 1000.0f),
+                 (long)lroundf(s_moveStatusDRadS * 1000.0f),
+                 (long)lroundf(s_moveStatusOmegaRadS * 1000.0f),
+                 (int)s_moveStatusLeftMmS, (int)s_moveStatusRightMmS,
+                 (unsigned)s_moveStatusSaturation);
+        reply_ok_fields("get_move_status", fields);
     } else if (codec_token_eq(verb, "proc")) {
         float psi_rad;
         float value, linear_m_s;
@@ -613,17 +675,41 @@ void cockpit_tick(uint64_t now_us)
                 if (s_moveHeadingIntegral < -integral_limit)
                     s_moveHeadingIntegral = -integral_limit;
             }
-            float omega = s_headingKp * error
-                        + s_headingKi * s_moveHeadingIntegral
-                        - s_headingKd * rate_rad_s;
-            if (omega > s_headingOmegaMaxRadS)
+            const float p_term = s_headingKp * error;
+            const float i_term = s_headingKi * s_moveHeadingIntegral;
+            const float d_term = -s_headingKd * rate_rad_s;
+            float omega = p_term + i_term + d_term;
+            uint8_t saturation = 0;
+            if (omega > s_headingOmegaMaxRadS) {
                 omega = s_headingOmegaMaxRadS;
-            if (omega < -s_headingOmegaMaxRadS)
+                saturation |= 1u;
+            }
+            if (omega < -s_headingOmegaMaxRadS) {
                 omega = -s_headingOmegaMaxRadS;
+                saturation |= 1u;
+            }
             const float left = s_moveLinearMs + omega * s_halfTrackM;
             const float right = s_moveLinearMs - omega * s_halfTrackM;
             const float scale = drive_scale(left, right);
-            tac_drive(wheel_mm_s(left * scale), wheel_mm_s(right * scale));
+            if (scale < 1.0f)
+                saturation |= 2u;
+            const int16_t left_mm_s = wheel_mm_s(left * scale);
+            const int16_t right_mm_s = wheel_mm_s(right * scale);
+            tac_drive(left_mm_s, right_mm_s);
+
+            const uint64_t elapsed_ms = (now_us - s_moveStartUs) / UINT64_C(1000);
+            s_moveStatusElapsedMs = elapsed_ms > UINT32_MAX
+                                  ? UINT32_MAX : (uint32_t)elapsed_ms;
+            s_moveStatusPsiRad = psi_rad;
+            s_moveStatusErrorRad = error;
+            s_moveStatusRateRadS = rate_rad_s;
+            s_moveStatusPRadS = p_term;
+            s_moveStatusIRadS = i_term;
+            s_moveStatusDRadS = d_term;
+            s_moveStatusOmegaRadS = omega * scale;
+            s_moveStatusLeftMmS = left_mm_s;
+            s_moveStatusRightMmS = right_mm_s;
+            s_moveStatusSaturation = saturation;
         }
     }
 }

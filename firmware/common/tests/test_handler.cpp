@@ -400,6 +400,11 @@ static void test_turn_imu_guards(void)
 static void test_move_procedure(void)
 {
     fresh();
+    send("get_move_status");
+    EXPECT(0, "=ok get_move_status a=0 t=0 h=0 x=0 e=0 v=0 p=0 i=0 d=0 o=0 l=0 r=0 s=0");
+    CHECK(strlen(out_line(0)) + 2 < 120,
+          "move status reply fits the cockpit wire line bound");
+    out_clear();
     send("arm");
     out_clear();
     send("proc move 1.000 0.200");
@@ -415,13 +420,24 @@ static void test_move_procedure(void)
     cockpit_tick(g_now + 10000);
     CHECK(tac_target_left() < 200 && tac_target_right() > 200,
           "move PID mixes heading correction into the wheel pair");
+    send("get_move_status");
+    EXPECT(0, "=ok get_move_status a=1 t=10 h=250 x=350 e=-100 v=0 p=-200 i=0 d=0 o=-200 l=170 r=230 s=0");
+
+    // A larger error reaches the configured omega clamp and reports bit 0.
+    out_clear();
+    g_psi = 0.75f;
+    cockpit_tick(g_now + 20000);
+    send("get_move_status");
+    EXPECT(0, "=ok get_move_status a=1 t=20 h=250 x=750 e=-500 v=0 p=-1000 i=-3 d=0 o=-500 l=125 r=275 s=1");
 
     out_clear();
     g_left_ticks = g_right_ticks = 3831;
-    cockpit_tick(g_now + 20000);
+    cockpit_tick(g_now + 30000);
     EXPECT(0, "!proc name=move outcome=DONE");
     CHECK(tac_target_left() == 0 && tac_target_right() == 0,
           "completed move stops rather than restoring prior motion");
+    send("get_move_status");
+    EXPECT(1, "=ok get_move_status a=0 t=20 h=250 x=750 e=-500 v=0 p=-1000 i=-3 d=0 o=-500 l=125 r=275 s=1");
 
     fresh();
     send("arm");

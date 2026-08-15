@@ -54,6 +54,20 @@ def _decode(op: str, d: wire.Downlink) -> Reply:
                       "right_gain_permille": int(f["rgain"]),
                       "left_deadband_permille": int(f["ldead"]),
                       "right_deadband_permille": int(f["rdead"])})
+    if op == _link.OP_GET_MOVE_STATUS:
+        return Reply({"active": f["a"] == "1",
+                      "elapsed_s": int(f["t"]) / 1000.0,
+                      "heading_ref_rad": int(f["h"]) / 1000.0,
+                      "heading_rad": int(f["x"]) / 1000.0,
+                      "error_rad": int(f["e"]) / 1000.0,
+                      "rate_rad_s": int(f["v"]) / 1000.0,
+                      "p_rad_s": int(f["p"]) / 1000.0,
+                      "i_rad_s": int(f["i"]) / 1000.0,
+                      "d_rad_s": int(f["d"]) / 1000.0,
+                      "omega_rad_s": int(f["o"]) / 1000.0,
+                      "left_m_s": int(f["l"]) / 1000.0,
+                      "right_m_s": int(f["r"]) / 1000.0,
+                      "saturation": int(f["s"])})
     if op == _link.OP_PROC:
         return Reply({"linear_m_s": float(f["lin"]),
                       "timeout_s": float(f["timeout"])})
