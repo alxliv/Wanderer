@@ -114,6 +114,8 @@ static void cockpit_heading_provider(float *psi, float *rate, float *bias,
     *valid = heading_valid();
 }
 
+static bool cockpit_imu_healthy_provider(void) { return imu_healthy(); }
+
 // ---- odometry --------------------------------------------------------------
 
 // Updated by the control loop, read by the cockpit's get_odometry.
@@ -165,6 +167,7 @@ int main(void)
                  DEFAULT_MAX_SPEED_MM_S / 1000.0f);
     cockpit_set_odometry_provider(odometry_provider);
     cockpit_set_heading_provider(cockpit_heading_provider, heading_zero);
+    cockpit_set_imu_healthy_provider(cockpit_imu_healthy_provider);
     cockpit_set_turn_config(TURN_RATE_RAD_S, TURN_OVERSHOOT_RAD,
                             TURN_LINEAR_LIMIT_M_S);
     // Relay sink deliberately not set: `^` payloads are dropped until the

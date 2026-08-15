@@ -1,10 +1,10 @@
 #include "cockpit_handler.h"
 
 #include <math.h>
-#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
+#include "angle.h"
 #include "cockpit_codec.h"
 #include "tactical.h"
 
@@ -15,6 +15,7 @@ static cockpit_sink    s_relay;
 static cockpit_odom_fn s_odom;
 static cockpit_heading_fn s_heading;
 static cockpit_heading_zero_fn s_headingZero;
+static cockpit_imu_healthy_fn s_imuHealthy;
 static uint8_t         s_fwMajor, s_fwMinor;
 static float           s_ticksPerMeter;
 static float           s_halfTrackM;
@@ -25,7 +26,8 @@ static float           s_turnLinearLimitMs;
 static bool            s_turnActive;
 static float           s_turnAngleRad;
 static float           s_turnLinearMs;
-static int32_t         s_turnStartLeft, s_turnStartRight;
+static float           s_turnLastPsiRad;
+static float           s_turnProgressRad;
 static uint64_t        s_turnDeadlineUs;
 static LineAssembler   s_asm;
 
@@ -68,6 +70,7 @@ void cockpit_init(cockpit_sink sink, uint8_t fw_major, uint8_t fw_minor,
     s_odom = NULL;
     s_heading = NULL;
     s_headingZero = NULL;
+    s_imuHealthy = NULL;
     line_asm_init(&s_asm);
     tac_set_change_state_callback(on_change_state);
 }
@@ -78,6 +81,10 @@ void cockpit_set_heading_provider(cockpit_heading_fn fn,
 {
     s_heading = fn;
     s_headingZero = zero_fn;
+}
+void cockpit_set_imu_healthy_provider(cockpit_imu_healthy_fn fn)
+{
+    s_imuHealthy = fn;
 }
 void cockpit_set_relay_sink(cockpit_sink fn)           { s_relay = fn; }
 
@@ -174,31 +181,35 @@ static void turn_finish(const char *outcome, const char *reason,
     if (restore_linear && tac_state() == TacticalState::Active) {
         const int16_t mm_s = wheel_mm_s(s_turnLinearMs);
         tac_drive(mm_s, mm_s);
+    } else if (tac_state() == TacticalState::Active) {
+        tac_drive(0, 0);
     }
     emit_proc_event(outcome, reason);
 }
 
-static int64_t wrapping_tick_delta(int32_t current, int32_t start)
+static bool turn_imu_ready(float *psi_rad)
 {
-    const uint32_t raw = (uint32_t)current - (uint32_t)start;
-    if (raw <= (uint32_t)INT32_MAX)
-        return (int64_t)raw;
-    return (int64_t)raw - (INT64_C(1) << 32);
+    if (!s_heading || !s_imuHealthy || !s_imuHealthy())
+        return false;
+    float psi, rate, bias;
+    bool valid = false;
+    s_heading(&psi, &rate, &bias, &valid);
+    if (!valid)
+        return false;
+    if (psi_rad)
+        *psi_rad = psi;
+    return true;
 }
 
-static int start_turn(float angle_rad, float linear_m_s, uint64_t now_us)
+static int start_turn(float angle_rad, float linear_m_s, uint64_t now_us,
+                      float psi_rad)
 {
-    if (!s_odom || !(s_ticksPerMeter > 0.0f) || !(s_halfTrackM > 0.0f)
-            || !(s_turnRateRadS > 0.0f))
+    if (!(s_halfTrackM > 0.0f) || !(s_turnRateRadS > 0.0f))
         return TAC_ERR_NOT_SAFE;
 
     if (s_turnLinearLimitMs > 0.0f
             && fabsf(linear_m_s) > s_turnLinearLimitMs)
         linear_m_s = copysignf(s_turnLinearLimitMs, linear_m_s);
-
-    int32_t left_ticks, right_ticks;
-    float vl, vr;
-    s_odom(&left_ticks, &right_ticks, &vl, &vr);
 
     const float omega = copysignf(s_turnRateRadS, angle_rad);
     const float left = linear_m_s + omega * s_halfTrackM;
@@ -212,8 +223,8 @@ static int start_turn(float angle_rad, float linear_m_s, uint64_t now_us)
     s_turnActive = true;
     s_turnAngleRad = angle_rad;
     s_turnLinearMs = linear_m_s;
-    s_turnStartLeft = left_ticks;
-    s_turnStartRight = right_ticks;
+    s_turnLastPsiRad = psi_rad;
+    s_turnProgressRad = 0.0f;
     const float applied_rate = s_turnRateRadS * scale;
     const uint64_t duration_us = (uint64_t)(fabsf(angle_rad) / applied_rate
                                            * 1000000.0f);
@@ -359,9 +370,14 @@ static void handle_request(char *line, uint64_t now_us)
             reply_err("proc", "bad_args", "expected turn angle linear");
             return;
         }
+        float psi_rad;
+        if (!turn_imu_ready(&psi_rad)) {
+            reply_err("proc", "imu_not_ready", NULL);
+            return;
+        }
         if (s_turnActive)
             turn_finish("SUPERSEDED", NULL, true);
-        const int rc = start_turn(angle_rad, linear_m_s, now_us);
+        const int rc = start_turn(angle_rad, linear_m_s, now_us, psi_rad);
         if (rc != TAC_OK) {
             reply_rc("proc", rc);
             return;
@@ -414,17 +430,15 @@ void cockpit_tick(uint64_t now_us)
         return;
     }
 
-    int32_t left_ticks, right_ticks;
-    float vl, vr;
-    s_odom(&left_ticks, &right_ticks, &vl, &vr);
-    const double left_m = (double)wrapping_tick_delta(left_ticks,
-                                                       s_turnStartLeft)
-                        / (double)s_ticksPerMeter;
-    const double right_m = (double)wrapping_tick_delta(right_ticks,
-                                                        s_turnStartRight)
-                         / (double)s_ticksPerMeter;
-    const double heading = (left_m - right_m) / (2.0 * s_halfTrackM);
-    const double progress = (s_turnAngleRad > 0.0f) ? heading : -heading;
+    float psi_rad;
+    if (!turn_imu_ready(&psi_rad)) {
+        turn_finish("ABORTED", "imu_stale", false);
+        return;
+    }
+    s_turnProgressRad += wrap_pi(psi_rad - s_turnLastPsiRad);
+    s_turnLastPsiRad = psi_rad;
+    const double progress = (s_turnAngleRad > 0.0f)
+        ? s_turnProgressRad : -s_turnProgressRad;
     const double target = fmax((double)fabsf(s_turnAngleRad)
                                - (double)s_turnOvershootRad, 0.0);
     if (progress >= target) {

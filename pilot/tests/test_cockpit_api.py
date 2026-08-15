@@ -13,7 +13,8 @@ import unittest
 
 from cockpit import (Cockpit, CockpitNack, FaultRaised, ProcedureFinished,
                      StateChanged, TacticalState)
-from cockpit.sim import HALF_TRACK_M, MAX_WHEEL_M_S, SimulatedCockpitLink
+from cockpit.sim import (HALF_TRACK_M, MAX_WHEEL_M_S, TICKS_PER_M,
+                         TURN_OVERSHOOT_RAD, SimulatedCockpitLink)
 
 LIVENESS_S = 0.15  # short deadman so tests run fast
 
@@ -120,6 +121,33 @@ class CockpitApiTest(unittest.TestCase):
         odo = self.cockpit.odometry()
         self.assertAlmostEqual(odo.left_m_s, 0.2)
         self.assertAlmostEqual(odo.right_m_s, 0.2)
+
+    def test_turn_tracks_gyro_when_wheels_slip(self):
+        link = SimulatedCockpitLink(liveness_timeout_s=3.0,
+                                    gyro_yaw_scale=0.5)
+        cockpit = Cockpit(link)
+        events: "queue.Queue" = queue.Queue()
+        cockpit.on_event(events.put)
+        cockpit.open()
+        try:
+            cockpit.arm()
+            cockpit.start_turn(0.3, 0.0)
+            outcome = wait_for(
+                events,
+                lambda event: isinstance(event, ProcedureFinished),
+                timeout=2.0)
+            self.assertEqual(outcome.outcome, "DONE")
+
+            heading = cockpit.heading().psi_rad
+            odometry = cockpit.odometry()
+            encoder_heading = ((odometry.left_ticks - odometry.right_ticks)
+                               / TICKS_PER_M / (2.0 * HALF_TRACK_M))
+            target = 0.3 - TURN_OVERSHOOT_RAD
+            self.assertGreaterEqual(heading, target)
+            self.assertLess(heading, target + 0.03)
+            self.assertGreater(encoder_heading, heading * 1.8)
+        finally:
+            cockpit.close()
 
 
 class SpecMatrixTest(unittest.TestCase):

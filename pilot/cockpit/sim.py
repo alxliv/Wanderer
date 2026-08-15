@@ -41,10 +41,12 @@ def _wrap_pi(angle: float) -> float:
 class SimulatedCockpitLink(CockpitLink):
     def __init__(self, *, liveness_timeout_s: float = 0.75,
                  half_track_m: float = HALF_TRACK_M,
-                 max_wheel_m_s: float = MAX_WHEEL_M_S):
+                 max_wheel_m_s: float = MAX_WHEEL_M_S,
+                 gyro_yaw_scale: float = 1.0):
         self._liveness_timeout = liveness_timeout_s
         self._half_track = half_track_m
         self._max_wheel = max_wheel_m_s
+        self._gyro_yaw_scale = gyro_yaw_scale
         self._sink: Optional[Callable[[Event], None]] = None
         self._lock = threading.Lock()
         self._running = False
@@ -61,13 +63,14 @@ class SimulatedCockpitLink(CockpitLink):
         self._turn_active = False
         self._turn_angle = 0.0
         self._turn_linear = 0.0
-        self._turn_start_left = 0.0
-        self._turn_start_right = 0.0
+        self._turn_last_heading = 0.0
+        self._turn_progress = 0.0
         self._turn_deadline = 0.0
         self._heading = 0.0
         self._heading_rate = 0.0
         self._heading_bias = 0.0
         self._heading_valid = True
+        self._imu_healthy = True
 
     # ---- CockpitLink ----------------------------------------------------
 
@@ -182,7 +185,7 @@ class SimulatedCockpitLink(CockpitLink):
             self._heading = 0.0
             return Reply()
         if op == _link.OP_GET_VERSION:
-            return Reply({"major": 0, "minor": 1})
+            return Reply({"major": 0, "minor": 13})
         if op == _link.OP_GET_GEOMETRY:
             # The airframe owns its geometry (spec section 3); the sim, as the
             # firmware's mirror, reports the same numbers it simulates with.
@@ -216,6 +219,8 @@ class SimulatedCockpitLink(CockpitLink):
             self._enter(TacticalState.ACTIVE)
         if self._state != TacticalState.ACTIVE:
             raise CockpitNack("not_armed", f"state is {self._state.name}")
+        if not self._heading_valid or not self._imu_healthy:
+            raise CockpitNack("imu_not_ready", "")
         if self._turn_active:
             self._finish_turn("SUPERSEDED", restore=True)
         linear = max(-TURN_LINEAR_LIMIT_M_S,
@@ -229,8 +234,8 @@ class SimulatedCockpitLink(CockpitLink):
         self._turn_active = True
         self._turn_angle = angle
         self._turn_linear = linear
-        self._turn_start_left = self._left_ticks
-        self._turn_start_right = self._right_ticks
+        self._turn_last_heading = self._heading
+        self._turn_progress = 0.0
         timeout_s = abs(angle) / (TURN_RATE_RAD_S * scale) + 3.0
         self._turn_deadline = time.monotonic() + timeout_s
         return Reply({"linear_m_s": linear, "timeout_s": timeout_s})
@@ -242,6 +247,8 @@ class SimulatedCockpitLink(CockpitLink):
         self._turn_active = False
         if restore and self._state == TacticalState.ACTIVE:
             self._v_left = self._v_right = self._turn_linear
+        elif self._state == TacticalState.ACTIVE:
+            self._v_left = self._v_right = 0.0
         self._emit(ProcedureFinished(name="turn", outcome=outcome,
                                      reason=reason))
 
@@ -252,10 +259,13 @@ class SimulatedCockpitLink(CockpitLink):
             reason = "deadman" if self._state == TacticalState.FALLBACK else "state"
             self._finish_turn("ABORTED", reason, restore=False)
             return
-        left_m = (self._left_ticks - self._turn_start_left) / TICKS_PER_M
-        right_m = (self._right_ticks - self._turn_start_right) / TICKS_PER_M
-        heading = (left_m - right_m) / (2.0 * self._half_track)
-        progress = heading if self._turn_angle > 0.0 else -heading
+        if not self._heading_valid or not self._imu_healthy:
+            self._finish_turn("ABORTED", "imu_stale", restore=False)
+            return
+        self._turn_progress += _wrap_pi(self._heading - self._turn_last_heading)
+        self._turn_last_heading = self._heading
+        progress = (self._turn_progress if self._turn_angle > 0.0
+                    else -self._turn_progress)
         target = max(abs(self._turn_angle) - TURN_OVERSHOOT_RAD, 0.0)
         if progress >= target:
             self._finish_turn("DONE", restore=True)
@@ -285,8 +295,9 @@ class SimulatedCockpitLink(CockpitLink):
                 dt = now - self._last_tick_time
                 self._last_tick_time = now
                 if self._moving():
-                    self._heading_rate = ((self._v_left - self._v_right)
-                                          / (2.0 * self._half_track))
+                    encoder_yaw_rate = ((self._v_left - self._v_right)
+                                        / (2.0 * self._half_track))
+                    self._heading_rate = encoder_yaw_rate * self._gyro_yaw_scale
                     self._heading = _wrap_pi(self._heading
                                              + self._heading_rate * dt)
                     self._left_ticks += self._v_left * dt * TICKS_PER_M

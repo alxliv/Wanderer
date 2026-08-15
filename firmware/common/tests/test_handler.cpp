@@ -54,6 +54,7 @@ static uint64_t g_now = 1000000;   // virtual time, us
 static int32_t g_left_ticks, g_right_ticks;
 static float g_psi = 0.25f, g_rate = -0.5f, g_bias = 0.01f;
 static bool g_heading_valid = true;
+static bool g_imu_healthy = true;
 
 static void turn_odometry(int32_t *lt, int32_t *rt, float *vl, float *vr)
 {
@@ -71,6 +72,7 @@ static void heading(float *psi, float *rate, float *bias, bool *valid)
 }
 
 static void heading_zero(void) { g_psi = 0.0f; }
+static bool imu_healthy(void) { return g_imu_healthy; }
 
 static void send(const char *line)
 {
@@ -88,6 +90,7 @@ static void fresh(void)
     cockpit_set_turn_config(0.5235988f, 0.0349066f, 0.2f);
     cockpit_set_odometry_provider(turn_odometry);
     cockpit_set_heading_provider(heading, heading_zero);
+    cockpit_set_imu_healthy_provider(imu_healthy);
     out_clear();
     relay_count = 0;
     g_now = 1000000;
@@ -96,6 +99,7 @@ static void fresh(void)
     g_rate = -0.5f;
     g_bias = 0.01f;
     g_heading_valid = true;
+    g_imu_healthy = true;
 }
 
 #define EXPECT(idx, want) CHECK(strcmp(out_line(idx), want) == 0, \
@@ -326,8 +330,13 @@ static void test_turn_procedure(void)
             "turn procedure owns curved wheel targets");
 
         out_clear();
-        g_left_ticks = 883;
-        g_right_ticks = -883;
+        // Wild encoder motion does not complete an IMU-owned turn.
+        g_left_ticks = 100000;
+        g_right_ticks = -100000;
+        cockpit_tick(g_now + 100000);
+        CHECK(out_count == 0, "encoder heading cannot finish an IMU turn");
+
+        g_psi = 1.80f;  // +1.55 rad from the 0.25 rad start heading
         cockpit_tick(g_now + 3000000);
         EXPECT(0, "!proc name=turn outcome=DONE");
         CHECK(tac_target_left() == 100 && tac_target_right() == 100,
@@ -352,6 +361,33 @@ static void test_turn_procedure(void)
         EXPECT(1, "!proc name=turn outcome=ABORTED reason=deadman");
 }
 
+static void test_turn_imu_guards(void)
+{
+    fresh();
+    send("arm");
+    out_clear();
+    g_heading_valid = false;
+    send("proc turn 1.570796 0.000");
+    EXPECT(0, "=err proc imu_not_ready");
+
+    out_clear();
+    g_heading_valid = true;
+    g_imu_healthy = false;
+    send("proc turn 1.570796 0.000");
+    EXPECT(0, "=err proc imu_not_ready");
+
+    out_clear();
+    g_imu_healthy = true;
+    send("proc turn 1.570796 0.000");
+    EXPECT(0, "=ok proc name=turn lin=0.000 timeout=6.000");
+    out_clear();
+    g_imu_healthy = false;
+    cockpit_tick(g_now + 100000);
+    EXPECT(0, "!proc name=turn outcome=ABORTED reason=imu_stale");
+    CHECK(tac_target_left() == 0 && tac_target_right() == 0,
+          "stale IMU stops rather than continuing the turn");
+}
+
 int main(void)
 {
     test_handshake_and_motion();
@@ -362,6 +398,7 @@ int main(void)
     test_odometry_and_overflow();
     test_heading_queries();
     test_turn_procedure();
+    test_turn_imu_guards();
     if (failures == 0)
         printf("OK: cockpit handler wire-level tests pass\n");
     else

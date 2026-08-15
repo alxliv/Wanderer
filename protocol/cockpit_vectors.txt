@@ -64,6 +64,7 @@ ok|drive|lin=0.462 omega=0.923|=ok drive lin=0.462 omega=0.923
 ok|proc|name=turn lin=0.100 timeout=6.000|=ok proc name=turn lin=0.100 timeout=6.000
 err|drive|not_armed|state is SAFE|=err drive not_armed state is SAFE
 err|zero_heading|imu_not_ready||=err zero_heading imu_not_ready
+err|proc|imu_not_ready||=err proc imu_not_ready
 err|stop|not_armed|state is FALLBACK|=err stop not_armed state is FALLBACK
 err|arm|fault_latched||=err arm fault_latched
 err|?|unknown_command|mve|=err ? unknown_command mve

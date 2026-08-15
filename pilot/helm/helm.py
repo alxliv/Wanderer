@@ -295,7 +295,7 @@ class Helm:
     def _turn(self, deg: float) -> None:
         """Rotate BY `deg` degrees (+ clockwise), then stop rotating.
 
-        The Pico closes heading from encoder ticks. Helm pauses its Tier 1
+        The Pico closes heading from the IMU. Helm pauses its Tier 1
         drive stream, keeps the deadman alive with pings, and waits for the
         procedure outcome. Ctrl-C asks the firmware to abort the turn.
         """

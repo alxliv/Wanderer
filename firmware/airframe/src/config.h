@@ -121,6 +121,6 @@
 
 /* ---- Firmware version (reported in INFO registers) ---- */
 #define FW_VERSION_MAJOR  0
-#define FW_VERSION_MINOR  12
+#define FW_VERSION_MINOR  13
 
 #endif /* WANDERER_CONFIG_H */
