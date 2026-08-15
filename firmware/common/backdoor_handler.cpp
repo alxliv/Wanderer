@@ -28,6 +28,8 @@ static int8_t  s_encLeftSign = 1, s_encRightSign = 1;
 static int8_t  s_motLeftSign = 1, s_motRightSign = 1;
 static float   s_ticksPerMeter;
 static int16_t s_maxSpeedMmS;
+static int8_t  s_imuYawSign = 1;
+static float   s_imuScale = 1.0f;
 
 // Outstanding wiggle. s_wiggleUntilUs is meaningless unless s_wiggling.
 static bool     s_wiggling;
@@ -75,6 +77,12 @@ void backdoor_init(backdoor_sink sink, uint8_t fw_major, uint8_t fw_minor)
     s_imuBias = NULL;
     s_imuPsi = NULL;
     s_imuCalibrate = NULL;
+    s_encLeftSign = s_encRightSign = 1;
+    s_motLeftSign = s_motRightSign = 1;
+    s_ticksPerMeter = 0.0f;
+    s_maxSpeedMmS = 0;
+    s_imuYawSign = 1;
+    s_imuScale = 1.0f;
     s_wiggling = false;
     s_wiggleUntilUs = 0;
     line_asm_init(&s_asm);
@@ -108,7 +116,8 @@ void backdoor_set_imu_estimator_providers(backdoor_imu_scalar_fn bias,
 
 void backdoor_set_config(int8_t enc_left_sign, int8_t enc_right_sign,
                          int8_t motor_left_sign, int8_t motor_right_sign,
-                         float ticks_per_meter, int16_t max_speed_mm_s)
+                         float ticks_per_meter, int16_t max_speed_mm_s,
+                         int8_t imu_yaw_sign, float imu_scale)
 {
     s_encLeftSign = enc_left_sign;
     s_encRightSign = enc_right_sign;
@@ -116,6 +125,8 @@ void backdoor_set_config(int8_t enc_left_sign, int8_t enc_right_sign,
     s_motRightSign = motor_right_sign;
     s_ticksPerMeter = ticks_per_meter;
     s_maxSpeedMmS = max_speed_mm_s;
+    s_imuYawSign = imu_yaw_sign;
+    s_imuScale = imu_scale;
 }
 
 bool backdoor_wiggle_active(void) { return s_wiggling; }
@@ -296,13 +307,15 @@ static void do_imu(char *tokens[], int n)
 // sign is correct" from "the sign should be +1".
 static void do_cfg(void)
 {
-    char fields[160];
+    char fields[224];
     snprintf(fields, sizeof fields,
              "enc_left_sign=%d enc_right_sign=%d motor_left_sign=%d "
-             "motor_right_sign=%d ticks_per_m=%.1f max_speed_mm_s=%d",
+             "motor_right_sign=%d ticks_per_m=%.1f max_speed_mm_s=%d "
+             "imu_sign=%d imu_scale=%.6f",
              (int)s_encLeftSign, (int)s_encRightSign,
              (int)s_motLeftSign, (int)s_motRightSign,
-             (double)s_ticksPerMeter, (int)s_maxSpeedMmS);
+             (double)s_ticksPerMeter, (int)s_maxSpeedMmS,
+             (int)s_imuYawSign, (double)s_imuScale);
     reply_ok("cfg", fields);
 }
 

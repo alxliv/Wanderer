@@ -56,7 +56,7 @@ wins — fix the code (see §11 for the known deltas).
   one. Accepting bare CR is what lets a plain serial terminal (picocom,
   minicom, PuTTY), which sends only CR on Enter, drive the airframe with no
   output mapping configured. Emitters always **send `\r\n`**.
-- Encoding is 7-bit ASCII. Maximum line length **120 bytes** including the
+- Encoding is 7-bit ASCII. Maximum line length **160 bytes** including the
   terminator; over-length input is discarded to the next terminator and
   answered `=err ? line_too_long`.
 - **Pilot → airframe** lines are **bare requests**: `verb [arg ...]` — or relay

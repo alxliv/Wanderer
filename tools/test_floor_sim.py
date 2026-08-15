@@ -48,6 +48,7 @@ class FakeSerial:
 
     def __init__(self, *a, **kw):
         self.out = []
+        self.timeout = kw.get("timeout", 2.0)
         self.dev = False
         self.lt = self.rt = 0
         self.duty = 0
@@ -185,6 +186,8 @@ hand_turn_pending = {"wheel": None}
 
 def scripted(prompt=""):
     p = prompt.lower()
+    if "currently set" in p:
+        return "n"
     if "diameter" in p:
         return str(WHEEL_DIAMETER_MM)
     if "distance in mm" in p:

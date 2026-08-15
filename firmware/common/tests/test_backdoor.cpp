@@ -149,15 +149,17 @@ static void test_cfg_reports_configured_signs(void)
     send("cfg");
     CHECK(strcmp(out_line(0),
                  "=ok cfg enc_left_sign=1 enc_right_sign=1 motor_left_sign=1"
-                 " motor_right_sign=1 ticks_per_m=0.0 max_speed_mm_s=0") == 0,
+                 " motor_right_sign=1 ticks_per_m=0.0 max_speed_mm_s=0"
+                 " imu_sign=1 imu_scale=1.000000") == 0,
           "cfg answers with identity defaults until config is published");
 
     out_clear();
-    backdoor_set_config(-1, 1, 1, -1, 10000.0f, 600);
+    backdoor_set_config(-1, 1, 1, -1, 10000.0f, 600, -1, 1.0125f);
     send("cfg");
     CHECK(strcmp(out_line(0),
                  "=ok cfg enc_left_sign=-1 enc_right_sign=1 motor_left_sign=1"
-                 " motor_right_sign=-1 ticks_per_m=10000.0 max_speed_mm_s=600") == 0,
+                 " motor_right_sign=-1 ticks_per_m=10000.0 max_speed_mm_s=600"
+                 " imu_sign=-1 imu_scale=1.012500") == 0,
           "cfg reports the compiled-in constants a bench tool needs");
     // Without this a tool cannot tell "the configured sign is correct" from
     // "the sign is +1", because `enc` counts are already sign-corrected.

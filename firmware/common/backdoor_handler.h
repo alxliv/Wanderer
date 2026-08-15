@@ -101,7 +101,8 @@ void backdoor_set_imu_estimator_providers(backdoor_imu_scalar_fn bias,
 // are: this module is shared, airframe/src/config.h is target-private.
 void backdoor_set_config(int8_t enc_left_sign, int8_t enc_right_sign,
                          int8_t motor_left_sign, int8_t motor_right_sign,
-                         float ticks_per_meter, int16_t max_speed_mm_s);
+                         float ticks_per_meter, int16_t max_speed_mm_s,
+                         int8_t imu_yaw_sign, float imu_scale);
 
 // Pump one received byte; dispatches when a full line has arrived.
 void backdoor_feed(char c, uint64_t now_us);

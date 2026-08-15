@@ -10,7 +10,7 @@
 // vectors in protocol/cockpit_vectors.txt.
 
 // Maximum line length including the terminator (spec section 2).
-#define CODEC_MAX_LINE   120
+#define CODEC_MAX_LINE   160
 #define CODEC_MAX_TOKENS 8
 
 // ---- line assembler: bytes in, complete lines out -------------------------

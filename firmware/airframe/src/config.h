@@ -22,7 +22,7 @@
 #define IMU_LSM6DSO_ADDR  0x6B  /* SA0 high on the MinIMU-9 v6 carrier */
 /* Turning RIGHT must produce a positive yaw rate. Verify by hand in M1. */
 #define IMU_YAW_SIGN      (1)
-#define IMU_SCALE         1.0f  /* calibrated in M3 */
+#define IMU_SCALE         1.0035291f  /* calibrated in M3 */
 #define IMU_STALE_MS      50
 
 /* ---- Cytron MDD10A channel 1 (left) ---- */
@@ -96,7 +96,7 @@
 #define PICO2_UART_BAUD   115200
 
 /* ---- Vehicle geometry ---- */
-#define TRACK_WIDTH_M     0.195f /* wheel-to-wheel; calibrate on the rover */
+#define TRACK_WIDTH_M     0.2009734f /* wheel-to-wheel; calibrate on the rover */
 
 /* ---- Relative turn procedure ---- */
 #define TURN_RATE_RAD_S          DEG2RAD(50) /* Degrees per second turn rate */
@@ -121,6 +121,6 @@
 
 /* ---- Firmware version (reported in INFO registers) ---- */
 #define FW_VERSION_MAJOR  0
-#define FW_VERSION_MINOR  10
+#define FW_VERSION_MINOR  11
 
 #endif /* WANDERER_CONFIG_H */

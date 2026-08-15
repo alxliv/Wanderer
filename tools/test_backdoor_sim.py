@@ -27,6 +27,7 @@ TICKS_PER_MS_AT_FULL = 4.0
 class FakeSerial:
     def __init__(self, *a, **kw):
         self.out = []
+        self.timeout = kw.get("timeout", 2.0)
         self.lt = 500          # nonzero start: the tool must use deltas
         self.rt = -300
         self.dev = False

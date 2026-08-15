@@ -343,11 +343,16 @@ exactly known angle and comparing.
 
 `tools/imu_cal.py --scale`, over the backdoor:
 
-1. Mark the floor. Rotate the chassis **by hand** through **10 full turns**
-   (3600°), slowly and continuously, returning to the mark.
-2. Read integrated yaw. `IMU_SCALE = 3600.0 / measured_degrees`.
-3. Ten turns rather than one for the same reason `--calibrate-floor` uses five
+1. Mark the floor. Rotate the chassis **by hand** through **5 full turns**
+   (1800°), slowly and continuously, returning to the mark.
+2. Read integrated yaw. `IMU_SCALE = 1800.0 / measured_degrees`.
+3. Five turns rather than one for the same reason `--calibrate-floor` uses five
    hand-turns: your error in judging "back to the mark" divides by the count.
+
+The tool reads the currently flashed scale from `cfg` and prints a replacement
+that preserves it: `new_scale = current_scale * 1800.0 / measured_degrees`.
+It deliberately never edits `config.h`. Review the printed `#define`, paste it
+into the header, rebuild, and flash before continuing.
 
 **Then get `TRACK_WIDTH_M` for free.** It is listed in
 motor_calibration.md §10 as still uncalibrated and needing "its own procedure,
@@ -364,6 +369,27 @@ drives the left wheel forward and the right wheel back — §2.)
 Run it over several revolutions and fit the slope rather than using one
 sample. This is the single best argument for doing the IMU work now: it closes
 out a calibration constant that has no other automated path.
+
+### 5.4.1 M3 runbook
+
+With the new firmware flashed, run these in order:
+
+```sh
+python tools/imu_cal.py --check-sign
+python tools/imu_cal.py --scale
+# paste the printed IMU_SCALE into config.h, rebuild, and reflash
+python tools/imu_cal.py --track
+```
+
+`--check-sign` performs a fresh stationary bias calibration, then asks for a
+short clockwise/right hand turn; it passes only if integrated yaw increases.
+`--scale` performs the same calibration and gives a fixed 30-second window to
+make five clockwise hand turns. `--track` is the only mode that moves the rover:
+after an explicit `ROTATE` confirmation, it drives bounded opposite-wheel
+pulses, reads cumulative encoder travel after each pulse, and fits travel
+against gyro yaw. Put the rover on clear level floor, keep its cable slack,
+and increase `--pulses` or `--duty` only if it reports fewer than a quarter
+turn. The cable-safe default is four 500 ms pulses.
 
 Caveat: this measures *effective* track under rotation slip, which is what the
 kinematics actually want — it will legitimately differ from a tape measure
@@ -632,7 +658,7 @@ A slip-free sim would pass with the bug still in.
 | Bias noise | σ ≤ 0.05 °/s over 5 s still. Above 0.2 °/s → fix the mount |
 | Static drift | Heading drifts < 0.5° over 60 s stationary, motors **powered and idling** — the idle case is where EMI shows up |
 | Sign | Rotate the robot to the **right** by hand → `psi` increases (§2) |
-| Scale | 10 hand turns integrate to 3600° ± 1% after `IMU_SCALE` |
+| Scale | 5 hand turns integrate to 1800° ± 1% after `IMU_SCALE` |
 
 **Floor:**
 

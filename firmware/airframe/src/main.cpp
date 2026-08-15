@@ -184,7 +184,8 @@ int main(void)
                                               backdoor_imu_calibrate);
     backdoor_set_config(ENC_LEFT_SIGN, ENC_RIGHT_SIGN,
                         MOTOR_LEFT_SIGN, MOTOR_RIGHT_SIGN,
-                        DEFAULT_TICKS_PER_METER, DEFAULT_MAX_SPEED_MM_S);
+                        DEFAULT_TICKS_PER_METER, DEFAULT_MAX_SPEED_MM_S,
+                        IMU_YAW_SIGN, IMU_SCALE);
 
     printf("*airframe fw %u.%u cockpit on pico2 uart0 @%u\r\n",
            FW_VERSION_MAJOR, FW_VERSION_MINOR, (unsigned)PICO2_UART_BAUD);
