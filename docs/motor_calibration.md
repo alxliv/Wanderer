@@ -238,11 +238,11 @@ python tools/backdoor.py --calibrate-floor
 **No arguments.** It asks for everything it needs. Bring a tape measure and a
 clear straight metre of hard floor.
 
-This turns encoder ticks into a physical length. Until it is done,
-`DEFAULT_TICKS_PER_METER` is a placeholder `10000.0f` and every distance and
-velocity the cockpit reports is scaled by a guess.
+This converts encoder ticks into a physical length. Until it is done,
+`DEFAULT_TICKS_PER_METER` is only a rough estimate, and every distance and
+velocity the cockpit reports is scaled by that guess.
 
-Four guided steps:
+The procedure has four guided steps:
 
 | Step | Rover | What you do |
 |---|---|---|
@@ -297,6 +297,205 @@ raised-bench figure in §6. Raise `--roll-duty`.
 
 Paste the result into `config.h` and reflash.
 
+### Mandatory order: floor before PID
+
+PID tuning depends on a correct `DEFAULT_TICKS_PER_METER` because the backdoor
+converts encoder tick deltas into `mm/s` using that constant. If the geometry
+calibration is still only a rough estimate, the PID sweep will suggest gains
+for the wrong speed scale.
+
+Do the sequence in this order:
+
+1. `--calibrate` for signs and deadbands
+2. `--calibrate-floor` for a measured ticks-per-metre value
+3. `--pid-tune` for wheel-speed tuning
+4. validate on the floor with a short straight run
+
+## 10. Motor PID calibration
+
+This tunes the wheel-speed loop for the left and right motors separately. The firmware samples the encoder every 100 ms and trims PWM to reduce the speed error, so the remaining task is picking stable gains for each wheel.
+
+Keep the rover raised so the wheels spin freely and do not touch the floor.
+
+#### Why the loop exists
+
+The flow is:
+
+- `Cockpit.drive()` sends a wheel-speed target over UART
+- the Pico stores the left/right target in the tactical layer
+- each 100 ms tick samples the encoders
+- `motor_command_apply_feedback()` compares measured and target speed and trims PWM
+
+This is not raw open-loop duty mapping. The encoder is the feedback signal, and the integral term prevents the wheel from settling far below the target.
+
+#### Before you tune PID
+
+Do these first:
+
+1. Run the raised-wheel calibration and fix any sign or wiring mistakes:
+
+   ```sh
+   python tools/backdoor.py --calibrate
+   ```
+
+2. Run the floor calibration to populate a correct `DEFAULT_TICKS_PER_METER`:
+
+   ```sh
+   python tools/backdoor.py --calibrate-floor
+   ```
+
+3. Confirm neither wheel is stalled by a bad deadband value.
+4. Keep the chassis raised and the wheels free before each sweep.
+5. Disable the cockpit/driver so the backdoor is the only motion source.
+
+#### Tune each wheel individually
+
+Run the built-in sweep helper:
+
+```sh
+python tools/backdoor.py --pid-tune --pid-wheel left --pid-targets 100,200,300,400,500,600 --pid-pulse-ms 800 --pid-settle 0.6 --pid-out left_pid.csv
+```
+
+Then the right wheel:
+
+```sh
+python tools/backdoor.py --pid-tune --pid-wheel right --pid-targets 100,200,300,400,500,600 --pid-pulse-ms 800 --pid-settle 0.6 --pid-out right_pid.csv
+```
+
+For a full sweep of both wheels together:
+
+```sh
+python tools/backdoor.py --pid-tune --pid-wheel both --pid-targets 100,200,300,400,500,600 --pid-pulse-ms 800 --pid-settle 0.6 --pid-out pid_sweep.csv
+```
+
+##### What the tool measures
+
+The tool runs a short pulse at each duty level, reads the encoder delta for that pulse, converts it to wheel speed in millimetres per second, and prints a suggested starting value.
+
+The conversion mirrors the firmware:
+
+```text
+speed_mm_s = tick_delta * 1e9 / (ticks_per_meter * elapsed_us)
+```
+
+The CSV contains the raw sweep data:
+
+```csv
+wheel,target_duty_permille,measured_mm_s,delta_ticks,elapsed_us
+left,100,42,14,800000
+```
+
+The important numbers are:
+
+- `target_duty`: the command sent to that wheel, in permille
+- `measured_mm_s`: the speed inferred from encoder counts
+- `delta_ticks`: the encoder movement during that pulse
+
+#### Interpret the result
+
+The printed values are only starting points. They are intentionally conservative, not a final tune.
+
+##### Typical starting point
+
+The tool suggests a small, stable loop:
+
+```c
+#define MOTOR_LEFT_PID_KP   0.5f
+#define MOTOR_LEFT_PID_KI   0.1f
+#define MOTOR_LEFT_PID_KD   0.0f
+```
+
+and similarly for the right wheel.
+
+Do not assume both sides share the same values. The left and right drivetrains are not identical; gear mesh, wheel slip, friction and the motor/encoder assembly can differ enough that one side needs a different gain.
+
+#### Tuning rules
+
+Use this order:
+
+1. Leave `Kd = 0.0f` until the wheel is otherwise stable.
+2. Tune `Kp` first.
+3. Add a small `Ki` only if the wheel settles below target or drifts.
+4. Keep `Ki` smaller than `Kp`; the loop is fast enough that a large integral term can overshoot or oscillate.
+5. Keep `Kp` low enough that the wheel does not hunt around the target.
+
+##### Good behavior
+
+A tuned wheel should:
+
+- reach the target speed promptly
+- settle without large oscillation
+- not overshoot so far that it swings around the target repeatedly
+- respond similarly at 200, 400 and 600 permille duty
+
+##### Signs the tune is too aggressive
+
+- the wheel overshoots the target and then oscillates
+- the encoder speed swings between fast and slow on the same command
+- the robot starts to weave even at low speed
+- one side is stable while the other continues hunting
+
+##### Signs the tune is too weak
+
+- the wheel never reaches the commanded speed
+- it lags visibly every time at moderate or high duty
+- the loop needs a long time to settle
+- the chassis drifts to one side under straight-line commands
+
+#### Update the firmware
+
+Once you have a measured pair of values, put them in `firmware/airframe/src/config.h`:
+
+```c
+#define MOTOR_LEFT_PID_KP   0.55f
+#define MOTOR_LEFT_PID_KI   0.08f
+#define MOTOR_LEFT_PID_KD   0.00f
+#define MOTOR_RIGHT_PID_KP  0.62f
+#define MOTOR_RIGHT_PID_KI  0.10f
+#define MOTOR_RIGHT_PID_KD  0.00f
+```
+
+The firmware applies them separately in the 100 Hz control loop.
+
+#### Validation procedure
+
+After updating the constants, rebuild and flash the firmware:
+
+```sh
+cmake -S firmware -B firmware/build
+cmake --build firmware/build --target wanderer_airframe
+```
+
+Then repeat the bench-driven checks:
+
+1. Start with a low duty pulse, such as 100 or 200 permille.
+2. Increase to 300, 400 and 600 permille.
+3. Watch each wheel settle.
+4. Compare the measured speed to the commanded target.
+5. If one side lags, increase that side's `Kp` slightly; if it oscillates, decrease `Kp` or `Ki`.
+6. Repeat until the left and right wheel speeds track closely and the rover runs straight at low speed.
+
+#### Exact tuning workflow
+
+Use this exact sequence to keep the process repeatable:
+
+1. Raise the rover and confirm both wheels are free.
+2. Run `python tools/backdoor.py --calibrate` and resolve any sign or deadband issues.
+3. Run `python tools/backdoor.py --calibrate-floor` and record the final `DEFAULT_TICKS_PER_METER`.
+4. Run `python tools/backdoor.py --pid-tune --pid-wheel left ...` and save the CSV.
+5. Run `python tools/backdoor.py --pid-tune --pid-wheel right ...` and save the CSV.
+6. Enter the suggested gains into `firmware/airframe/src/config.h`.
+7. Rebuild and flash the robot.
+8. Run three or four duty steps on each wheel and check for overshoot or hunting.
+9. Adjust `Kp` and `Ki` until both wheels settle cleanly.
+10. Keep the final values as the calibration result for that rover.
+
+#### Keep the numbers honest
+
+The default values in `config.h` are only seed values. The real values come from a bench sweep on the actual hardware. Do not keep a generic value if the measured wheel response says otherwise.
+
+If a wheel is mechanically different, the tune should be different. The correct implementation is not one global PID for both wheels; it is one tuned loop per side.
+
 ### Testing without hardware
 
 ```sh
@@ -306,7 +505,7 @@ python tools/test_floor_sim.py
 Walks the same prompts with a scripted operator against a simulated rover,
 including the hand-turning step, and checks the arithmetic.
 
-## 10. Still not calibrated
+## 11. Still not calibrated
 
 - **`DEFAULT_MAX_SPEED_MM_S`** (600) — needs a sustained run near full duty,
   which needs more floor than a USB cable reaches. Waits for the Pi5 to carry

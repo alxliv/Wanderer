@@ -70,6 +70,21 @@ int main(void) {
     /* An invalid limit above full scale must not increase the command duty. */
     expect_output(500, 2000, false, 500);
 
+    /* Speed feedback should trim the command toward the measured wheel speed. */
+    float integral = 0.0f;
+    assert(motor_command_apply_feedback(600, 0, 0, 600, 0.5f, 0.1f, &integral)
+           == 600);
+    assert(integral == 1000.0f);
+
+    integral = 0.0f;
+    assert(motor_command_apply_feedback(0, 600, 0, 600, 0.5f, 0.1f, &integral)
+           == -600);
+    assert(integral == -1000.0f);
+
+    integral = 0.0f;
+    assert(motor_command_apply_feedback(600, 0, 990, 600, 0.5f, 0.1f, &integral)
+           == 1000);
+
     puts("motor output tests passed");
     return 0;
 }

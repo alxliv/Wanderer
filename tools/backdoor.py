@@ -326,6 +326,97 @@ def pulse(bd: Backdoor, wheel: str, duty: int, ms: int, settle: float) -> Pulse:
     return Pulse(duty, wheel, l1 - l0, r1 - r0)
 
 
+def parse_pid_targets(raw: str | None) -> list[int]:
+    """Parse a comma-separated duty list for the PID sweep."""
+    if raw is None:
+        return [100, 200, 300, 400, 500, 600]
+    targets: list[int] = []
+    for token in raw.split(","):
+        value = int(token.strip())
+        if value <= 0:
+            raise ValueError("PID target values must be positive integers")
+        targets.append(value)
+    if not targets:
+        raise ValueError("No PID target values were supplied")
+    return targets
+
+
+def velocity_mm_s_from_ticks(tick_delta: int, ticks_per_meter: float,
+                            elapsed_us: int) -> int:
+    """Mirror encoder_velocity_mm_s() in the firmware, but in Python."""
+    if not (ticks_per_meter > 0.0) or elapsed_us <= 0:
+        return 0
+    velocity = ((float(tick_delta) * 1000000000.0) /
+                (ticks_per_meter * float(elapsed_us)))
+    if velocity >= float(32767):
+        return 32767
+    if velocity <= float(-32768):
+        return -32768
+    velocity += 0.5 if velocity >= 0.0 else -0.5
+    return int(velocity)
+
+
+def suggest_pid(row_data: list[dict[str, float]]) -> tuple[float, float, float]:
+    """Return a sane starting point for wheel-speed PID from sampled data.
+
+    This is intentionally conservative: it uses the measured duty-to-speed gain
+    but keeps Kp moderate and Ki much smaller, because a wheel-speed loop on a
+    lifted drivetrain can be unstable if the integral term is too aggressive.
+    """
+    if not row_data:
+        return 0.5, 0.1, 0.0
+    target_values = [float(row["target_duty"]) for row in row_data]
+    measured_values = [float(row["measured_mm_s"]) for row in row_data]
+    max_duty = max(target_values)
+    max_speed = max(abs(v) for v in measured_values)
+    if max_speed <= 1.0:
+        return 0.5, 0.1, 0.0
+
+    kp = 0.5 * (max_duty / max_speed)
+    kp = min(max(kp, 0.1), 1.0)
+    ki = min(max(kp * 0.2, 0.02), 0.25)
+    return kp, ki, 0.0
+
+
+def write_pid_csv(path: str, wheel: str, rows: list[dict[str, float]]) -> None:
+    """Write raw PID-tune data in CSV form for later review."""
+    with open(path, "w", encoding="utf-8") as fp:
+        fp.write("wheel,target_duty_permille,measured_mm_s,delta_ticks,elapsed_us\n")
+        for row in rows:
+            fp.write(f"{wheel},{row['target_duty']},{row['measured_mm_s']},"
+                     f"{row['delta_ticks']},{row['elapsed_us']}\n")
+
+
+def sweep_pid_tune(bd: Backdoor, wheel: str, targets: list[int],
+                  pulse_ms: int, settle: float, out_csv: str | None) -> tuple[float, float, float, list[dict[str, float]]]:
+    """Run a bench sweep and estimate a starting PID for one wheel."""
+    tpm = bd.cfg_ticks_per_m() or 3831.0
+    rows: list[dict[str, float]] = []
+    print(f"\nPID tune for {wheel} wheel")
+    print(f"targets: {targets}")
+    for duty in targets:
+        delta = pulse(bd, wheel, duty, pulse_ms, settle)
+        measured = velocity_mm_s_from_ticks(
+            delta.left_delta if wheel == "left" else delta.right_delta,
+            tpm,
+            pulse_ms * 1000,
+        )
+        rows.append({
+            "target_duty": float(duty),
+            "measured_mm_s": float(measured),
+            "delta_ticks": float(delta.left_delta if wheel == "left" else delta.right_delta),
+            "elapsed_us": float(pulse_ms * 1000),
+        })
+        print(f"  duty {duty:>3} -> measured {measured:>5} mm/s"
+              f"  delta {int(rows[-1]['delta_ticks'])} ticks")
+
+    kp, ki, kd = suggest_pid(rows)
+    if out_csv:
+        write_pid_csv(out_csv, wheel, rows)
+        print(f"  CSV saved to {out_csv}")
+    return kp, ki, kd, rows
+
+
 def sweep_deadband(bd: Backdoor, wheel: str, sign: int, args) -> tuple[int | None, list[Pulse]]:
     """Walk duty upward until the wheel breaks away, then refine.
 
@@ -790,6 +881,57 @@ def calibrate(bd: Backdoor, args) -> int:
         report(res, args)
         return 0
     return 1
+
+
+def calibrate_pid(bd: Backdoor, args) -> int:
+    """Bench measurement for wheel-speed PID starting values.
+
+    This is intentionally a calibration helper: it runs a duty sweep on each
+    wheel, records the encoder speed, and prints a config-ready PID block.
+    """
+    targets = parse_pid_targets(args.pid_targets)
+    wheels = [args.pid_wheel] if args.pid_wheel != "both" else ["left", "right"]
+    if not acquire_dev(bd):
+        return 1
+
+    try:
+        print("\n=== Wheel-speed PID calibration ===")
+        print("This is a bench-only tuning pass. Keep the rover raised and the wheels free.")
+        print("The output below is a sensible starting point, not a final tuned value.")
+        print("\nFor each wheel, the tool runs a brief duty sweep and reports the")
+        print("measured encoder speed; those values are then used to suggest")
+        print("Kp, Ki and Kd. The final decision stays human-driven.")
+
+        for wheel in wheels:
+            kp, ki, kd, rows = sweep_pid_tune(
+                bd,
+                wheel,
+                targets,
+                args.pid_pulse_ms,
+                args.pid_settle,
+                args.pid_out,
+            )
+            print(f"\nSuggested PID for {wheel} wheel:")
+            print(f"  #define MOTOR_{wheel.upper()}_PID_KP   {kp:.3f}f")
+            print(f"  #define MOTOR_{wheel.upper()}_PID_KI   {ki:.3f}f")
+            print(f"  #define MOTOR_{wheel.upper()}_PID_KD   {kd:.3f}f")
+
+            if args.pid_out:
+                # If a single output file was requested for one wheel, keep the
+                # file name but write only that wheel's rows.
+                if len(wheels) > 1:
+                    suffix = f"_{wheel}"
+                    out = args.pid_out.rsplit(".", 1)
+                    if len(out) == 2:
+                        out_path = f"{out[0]}{suffix}.{out[1]}"
+                    else:
+                        out_path = f"{args.pid_out}{suffix}"
+                    write_pid_csv(out_path, wheel, rows)
+                    print(f"  CSV written to {out_path}")
+        return 0
+    finally:
+        bd.dev(False)
+        print("\ndev mode released.")
 
 
 # --------------------------------------------------------------------------
@@ -1306,6 +1448,8 @@ def main() -> int:
     mode.add_argument("--calibrate-floor", action="store_true",
                       help="guided ticks-per-metre measurement. Asks for "
                            "everything it needs; bring a tape measure.")
+    mode.add_argument("--pid-tune", action="store_true",
+                      help="measure wheel-speed response and suggest PID gains")
     ap.add_argument("--verbose", "-v", action="store_true", help="echo the wire traffic")
     ap.add_argument("--yes", action="store_true",
                     help="skip the wheels-off-the-ground confirmation")
@@ -1330,6 +1474,18 @@ def main() -> int:
     sweep.add_argument("--skip-rotation-check", action="store_true",
                        help="skip the operator-confirmed rotation check. Only "
                             "safe when polarity is already known good.")
+    pid = ap.add_argument_group("PID tuning (--pid-tune)")
+    pid.add_argument("--pid-wheel", choices=("left", "right", "both"), default="both",
+                     help="which wheel to sweep for PID values (default both)")
+    pid.add_argument("--pid-targets", default="100,200,300,400,500,600",
+                     help="comma-separated duty values to sweep (default 100,200,300,400,500,600)")
+    pid.add_argument("--pid-pulse-ms", type=int, default=800,
+                     help="pulse length for the PID sweep (default 800 ms)")
+    pid.add_argument("--pid-settle", type=float, default=0.6,
+                     help="rest time before each PID pulse (default 0.6 s)")
+    pid.add_argument("--pid-out", default=None,
+                     help="write raw PID data to this CSV file")
+
     floor = ap.add_argument_group("floor calibration (--calibrate-floor)")
     floor.add_argument("--turns", type=int, default=5,
                        help="hand turns per wheel when counting ticks (default 5)")
@@ -1367,6 +1523,8 @@ def main() -> int:
             return calibrate(bd, args)
         if args.calibrate_floor:
             return calibrate_floor(bd, args)
+        if args.pid_tune:
+            return calibrate_pid(bd, args)
         acquire_dev(bd)
         return console(bd)
     except KeyboardInterrupt:

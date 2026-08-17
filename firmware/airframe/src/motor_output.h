@@ -32,6 +32,18 @@ int16_t motor_command_apply_deadband(int16_t command, uint16_t deadband);
  */
 motor_output_t motor_output_from_command(int16_t command, uint16_t max_pwm);
 
+/*
+ * Apply a simple P+I wheel-speed controller. target_mm_s and measured_mm_s are
+ * the desired and actual wheel speeds in mm/s; current_command is the previous
+ * per-mille output in [-1000, +1000]. The integral accumulator is updated in
+ * place so the loop can retain bias correction across multiple control ticks.
+ */
+int16_t motor_command_apply_feedback(int16_t target_mm_s,
+                                     int16_t measured_mm_s,
+                                     int16_t current_command,
+                                     int16_t max_speed_mm_s,
+                                     float kp, float ki, float *integral);
+
 #ifdef __cplusplus
 }
 #endif

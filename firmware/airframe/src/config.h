@@ -118,9 +118,17 @@
      seeded from 826 ticks/rev and a 68 mm wheel. */
 #define DEFAULT_TICKS_PER_METER  3831.0f
 
-#define DEFAULT_PID_KP           0.5f
-#define DEFAULT_PID_KI           0.1f
-#define DEFAULT_PID_KD           0.0f
+/* ---- Wheel-speed PID (tune left and right separately) ----
+ * These are initial bench defaults, not the finished values for a specific
+ * chassis. Use the bench tuning procedure in motors_pid_calibration.md to
+ * replace them with measured per-wheel settings.
+ */
+#define MOTOR_LEFT_PID_KP        0.5f
+#define MOTOR_LEFT_PID_KI        0.1f
+#define MOTOR_LEFT_PID_KD        0.0f
+#define MOTOR_RIGHT_PID_KP       0.5f
+#define MOTOR_RIGHT_PID_KI       0.1f
+#define MOTOR_RIGHT_PID_KD       0.0f
 #define DEFAULT_MAX_PWM          1000      /* per-mille clamp (0..1000) */
 #define DEFAULT_MAX_SPEED_MM_S   600       /* open-loop full-scale; calibrate */
 #define DEFAULT_WATCHDOG_10MS    50        /* 50 * 10 ms = 500 ms */
