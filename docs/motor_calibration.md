@@ -350,6 +350,14 @@ Do these first:
 
 #### Tune each wheel individually
 
+The new arguments are easy to confuse, so here is the exact meaning:
+
+- `--pid-targets` is the list of motor command values, not a speed target. These are values in per-mille duty, from 0 to 1000. `100` means 10% duty, `200` means 20% duty, `300` means 30%, and so on. The tool sends each one for a short pulse, measures the resulting wheel speed from the encoder, and prints the result for each duty. It does not generate a plot in this script; the CSV file is the data you review or plot later if you want.
+- `--pid-pulse-ms` is how long each duty pulse lasts. A longer pulse gives the wheel more time to accelerate and settle, so the measured speed is more stable.
+- `--pid-settle` is the rest time before each pulse. It lets the wheel come fully to rest before the next command, because static friction is higher than rolling friction. Without a settle time, the measured speed is distorted by the wheel not being at rest.
+- `--pid-wheel` chooses which wheel to sweep: `left`, `right`, or `both`.
+- `--pid-out` writes the raw results to CSV so you can compare the response curves later.
+
 Run the built-in sweep helper:
 
 ```sh
@@ -391,6 +399,46 @@ The important numbers are:
 - `measured_mm_s`: the speed inferred from encoder counts
 - `delta_ticks`: the encoder movement during that pulse
 
+#### Compare the CSVs in Excel
+
+The CSV is the record you use later to compare one wheel against another or one tuning pass against the next. There is no built-in plot in the tool; Excel is the normal way to inspect the curve.
+
+1. Save the output files from each wheel:
+
+   ```sh
+   python tools/backdoor.py --pid-tune --pid-wheel left --pid-targets 100,200,300,400,500,600 --pid-pulse-ms 800 --pid-settle 0.6 --pid-out left_pid.csv
+   python tools/backdoor.py --pid-tune --pid-wheel right --pid-targets 100,200,300,400,500,600 --pid-pulse-ms 800 --pid-settle 0.6 --pid-out right_pid.csv
+   ```
+
+2. Open Excel.
+3. In Excel, choose **Data → From Text/CSV** and load `left_pid.csv`.
+4. In the import dialog, keep the comma delimiter and accept the headers. The table should have the columns:
+
+   - `wheel`
+   - `target_duty_permille`
+   - `measured_mm_s`
+   - `delta_ticks`
+   - `elapsed_us`
+
+5. Repeat for `right_pid.csv`. You can place both sets in separate sheets or in the same sheet.
+6. To compare the curves, make a chart with:
+
+   - X-axis = `target_duty_permille`
+   - Y-axis = `measured_mm_s`
+
+7. In Excel, select the two columns for the left wheel, then choose **Insert → Scatter or Line Chart**. Repeat for the right wheel, then overlay the two series on the same chart.
+8. If you want the cleanest comparison, keep the left and right series in the same chart and label them clearly.
+
+A good response curve is monotonic: speed rises as duty rises, without large spikes or repeated oscillation. If one side stays much lower than the other at the same duty, the deadband or the PID values are still mismatched.
+
+If you want a quick sanity check before saving the tune, compare these points:
+
+- `100` vs `200` duty: does the measured speed rise smoothly?
+- `300` vs `400` duty: is the curve consistent?
+- `500` vs `600` duty: is there overshoot or a sudden flattening?
+
+The CSV is the evidence. If the curve is jagged or one wheel is clearly different, rerun the sweep before you change the firmware constants.
+
 #### Interpret the result
 
 The printed values are only starting points. They are intentionally conservative, not a final tune.
@@ -408,6 +456,16 @@ The tool suggests a small, stable loop:
 and similarly for the right wheel.
 
 Do not assume both sides share the same values. The left and right drivetrains are not identical; gear mesh, wheel slip, friction and the motor/encoder assembly can differ enough that one side needs a different gain.
+
+##### What each PID coefficient means
+
+Think of the controller as trying to fix the speed error:
+
+- `Kp` is the immediate response. It multiplies the current error, so if the wheel is slow, it adds more duty right away. Example: if the target is 300 mm/s and the wheel is only at 200 mm/s, the error is 100 mm/s. A `Kp` around 0.5 means the controller responds strongly enough to move the command toward the target but not so aggressively that it overshoots.
+- `Ki` is the slow accumulation of error. It keeps adding up the error over time, which helps when the wheel is consistently below target because of friction or load. Example: if the wheel is always 20 mm/s low, `Ki` keeps nudging the duty higher until the wheel catches up. Too much `Ki` makes the wheel hunt or oscillate.
+- `Kd` reacts to how fast the error is changing. It is useful when the wheel suddenly speeds up or slows down and you want to damp the response. Example: if the wheel is accelerating too hard and overshooting, `Kd` pushes back. In this project, start with `Kd = 0.0f` unless the wheel clearly overshoots and oscillates even with a moderate `Kp` and `Ki`.
+
+A good rule is: `Kp` gives the first push, `Ki` fixes persistent under-speed, and `Kd` damps the correction. In this rover, start with `Kd = 0.0f` and tune it only if needed.
 
 #### Tuning rules
 
@@ -489,6 +547,36 @@ Use this exact sequence to keep the process repeatable:
 8. Run three or four duty steps on each wheel and check for overshoot or hunting.
 9. Adjust `Kp` and `Ki` until both wheels settle cleanly.
 10. Keep the final values as the calibration result for that rover.
+
+What is a "duty step"? It is a commanded motor duty level. The value is not a speed. A duty step is simply a new command such as 100, 200, 300, 400 permille. In this system, 100 = 10% duty, 200 = 20% duty, and so on. The wheel then responds by spinning at some measured speed, and the encoder tells you what that actual speed was.
+
+For example, a duty step from 100 to 200 permille means: command the wheel to 20% duty instead of 10% duty, wait for the encoder to react, then compare the measured speed to the commanded value. The exact command sequence is:
+
+```sh
+python tools/backdoor.py --pid-tune --pid-wheel left --pid-targets 100,200,300,400,500,600 --pid-pulse-ms 800 --pid-settle 0.6 --pid-out left_pid.csv
+```
+
+This is a 100, 200, 300, 400, 500, 600 permille sweep. Each value is one duty step. You do not need to invent a different sequence; the sweep helper already does the stepping for you.
+
+If you want to do the validation by hand instead of using the helper, run 3 or 4 short pulses such as:
+
+- 100 permille for one pulse
+- 200 permille for one pulse
+- 300 permille for one pulse
+- 400 permille for one pulse
+
+Keep each pulse short and compare the measured speed against the command. If the wheel shoots past the target and then swings back, that is overshoot. If the speed keeps bouncing above and below the target, that is hunting. If it rises too slowly and never reaches the target, that is under-response.
+
+Why save the CSV? Because the CSV is the raw record of the bench test. It lets you compare command vs measured speed across several duty levels, and it shows whether the loop is behaving linearly or whether one wheel has a real offset. The CSV is not decorative; it is the evidence you use before accepting a tune. When you inspect the file, look for the pattern:
+
+- command rises smoothly
+- measured speed rises smoothly with it
+- no repeated oscillation between high and low values
+- left and right wheels have similar response shape
+
+If the CSV shows this pattern, the values are likely usable. If the speed curve is jagged or the wheel overshoots at the same duty level every time, reduce `Kp` or `Ki` and repeat the sweep.
+
+Do not save CSV files and then ignore them. Save them once per wheel, compare the curves, and use the same file to decide whether a new coefficient set improved or worsened the response.
 
 #### Keep the numbers honest
 
