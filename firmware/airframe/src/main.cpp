@@ -6,10 +6,9 @@
 //   tac targets  -> open-loop per-mille -> motors_set()
 //   encoders     -> odometry provider -> `=ok get_odometry ...`
 //
-// Motor control runs in a simple wheel-speed closed loop: encoder-derived
-// wheel velocity is compared against the tactical target each control tick,
-// and the PWM command is trimmed to reduce the error. The cockpit protocol
-// stays the same; only the low-level actuation path changes.
+// Motor control is open loop: wheel target mm/s maps linearly to per-mille PWM
+// through DEFAULT_MAX_SPEED_MM_S. This gives stop an exact zero-output meaning
+// and keeps motor-gain calibration independent of wheel-speed feedback.
 //
 // stdio stays on USB CDC, which now carries the SYSTEM BACKDOOR (arch 3a)
 // as well as bench logs (`*` lines); the Pico2 UART carries ONLY cockpit
@@ -36,11 +35,6 @@ static uint64_t now_us(void)
 {
     return to_us_since_boot(get_absolute_time());
 }
-
-static int16_t s_left_motor_command = 0;
-static int16_t s_right_motor_command = 0;
-static float s_left_motor_integral = 0.0f;
-static float s_right_motor_integral = 0.0f;
 
 // ---- cockpit transport -----------------------------------------------------
 
@@ -270,28 +264,12 @@ int main(void)
             // SAFE/FAULT gate to zero via motors_stop so the driver's outputs
             // are unambiguous, not merely zero-valued.
             if (tac_dev_active() && backdoor_wiggle_active()) {
-                s_left_motor_command = s_bdLeft;
-                s_right_motor_command = s_bdRight;
-                s_left_motor_integral = 0.0f;
-                s_right_motor_integral = 0.0f;
-                motors_set(s_left_motor_command, s_right_motor_command,
-                           DEFAULT_MAX_PWM);
+                motors_set(s_bdLeft, s_bdRight, DEFAULT_MAX_PWM);
             } else if (tac_motors_enabled()) {
-                s_left_motor_command = motor_command_apply_feedback(
-                    tac_target_left(), s_vl_mm_s, s_left_motor_command,
-                    DEFAULT_MAX_SPEED_MM_S, MOTOR_LEFT_PID_KP,
-                    MOTOR_LEFT_PID_KI, &s_left_motor_integral);
-                s_right_motor_command = motor_command_apply_feedback(
-                    tac_target_right(), s_vr_mm_s, s_right_motor_command,
-                    DEFAULT_MAX_SPEED_MM_S, MOTOR_RIGHT_PID_KP,
-                    MOTOR_RIGHT_PID_KI, &s_right_motor_integral);
-                motors_set(s_left_motor_command, s_right_motor_command,
+                motors_set(permille_from_mm_s(tac_target_left()),
+                           permille_from_mm_s(tac_target_right()),
                            DEFAULT_MAX_PWM);
             } else {
-                s_left_motor_command = 0;
-                s_right_motor_command = 0;
-                s_left_motor_integral = 0.0f;
-                s_right_motor_integral = 0.0f;
                 motors_stop();
             }
         }

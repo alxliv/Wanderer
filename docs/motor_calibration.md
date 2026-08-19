@@ -297,36 +297,40 @@ raised-bench figure in §6. Raise `--roll-duty`.
 
 Paste the result into `config.h` and reflash.
 
-### Mandatory order: floor before PID
+### Mandatory order: floor before wheel-response measurement
 
-PID tuning depends on a correct `DEFAULT_TICKS_PER_METER` because the backdoor
+Speed measurement depends on a correct `DEFAULT_TICKS_PER_METER` because the backdoor
 converts encoder tick deltas into `mm/s` using that constant. If the geometry
-calibration is still only a rough estimate, the PID sweep will suggest gains
+calibration is still only a rough estimate, the sweep will suggest gains
 for the wrong speed scale.
 
 Do the sequence in this order:
 
 1. `--calibrate` for signs and deadbands
 2. `--calibrate-floor` for a measured ticks-per-metre value
-3. `--pid-tune` for wheel-speed tuning
+3. `--pid-tune` for open-loop wheel-response measurement
 4. validate on the floor with a short straight run
 
-## 10. Motor PID calibration
+## 10. Wheel-response measurement and PI starting values
 
-This tunes the wheel-speed loop for the left and right motors separately. The firmware samples the encoder every 100 ms and trims PWM to reduce the speed error, so the remaining task is picking stable gains for each wheel.
+This measures each wheel's open-loop duty-to-speed response and calculates
+starting values for the proportional-integral (PI) helper. The flight motor
+path maps target speed directly to duty and does not call that helper.
 
 Keep the rover raised so the wheels spin freely and do not touch the floor.
 
-#### Why the loop exists
+#### Active motor path
 
 The flow is:
 
 - `Cockpit.drive()` sends a wheel-speed target over UART
 - the Pico stores the left/right target in the tactical layer
-- each 100 ms tick samples the encoders
-- `motor_command_apply_feedback()` compares measured and target speed and trims PWM
+- each 10 ms tick samples the encoders
+- `DEFAULT_MAX_SPEED_MM_S` maps each target speed to motor duty
+- `motors_set()` applies per-wheel deadband and gain
 
-This is not raw open-loop duty mapping. The encoder is the feedback signal, and the integral term prevents the wheel from settling far below the target.
+The `--pid-tune` backdoor sweep also uses raw duty. Its CSV records evidence
+for controller design without allowing feedback to hide motor mismatch.
 
 #### Before you tune PID
 
@@ -429,7 +433,7 @@ The CSV is the record you use later to compare one wheel against another or one 
 7. In Excel, select the two columns for the left wheel, then choose **Insert → Scatter or Line Chart**. Repeat for the right wheel, then overlay the two series on the same chart.
 8. If you want the cleanest comparison, keep the left and right series in the same chart and label them clearly.
 
-A good response curve is monotonic: speed rises as duty rises, without large spikes or repeated oscillation. If one side stays much lower than the other at the same duty, the deadband or the PID values are still mismatched.
+A good response curve is monotonic: speed rises as duty rises, without large spikes or repeated oscillation. If one side stays much lower than the other at the same duty, the deadband or open-loop motor gains are still mismatched.
 
 If you want a quick sanity check before saving the tune, compare these points:
 
@@ -513,9 +517,13 @@ Once you have a measured pair of values, put them in `firmware/airframe/src/conf
 #define MOTOR_RIGHT_PID_KD  0.00f
 ```
 
-The firmware applies them separately in the 100 Hz control loop.
+The PI helper accepts separate values for the two wheels. These constants do
+not affect the open-loop flight motor path.
 
-#### Validation procedure
+#### PI activation procedure
+
+Keep the PI helper isolated from the flight motor path until its repeated-step
+host tests pass. Then validate it with the chassis raised before any floor run.
 
 After updating the constants, rebuild and flash the firmware:
 
@@ -524,18 +532,18 @@ cmake -S firmware -B firmware/build
 cmake --build firmware/build --target wanderer_airframe
 ```
 
-Then repeat the bench-driven checks:
+With the chassis raised, run these checks:
 
 1. Start with a low duty pulse, such as 100 or 200 permille.
 2. Increase to 300, 400 and 600 permille.
 3. Watch each wheel settle.
 4. Compare the measured speed to the commanded target.
 5. If one side lags, increase that side's `Kp` slightly; if it oscillates, decrease `Kp` or `Ki`.
-6. Repeat until the left and right wheel speeds track closely and the rover runs straight at low speed.
+6. Repeat until both wheel speeds settle without reversing or hunting.
 
 #### Exact tuning workflow
 
-Use this exact sequence to keep the process repeatable:
+Use this sequence when validating an enabled PI path:
 
 1. Raise the rover and confirm both wheels are free.
 2. Run `python tools/backdoor.py --calibrate` and resolve any sign or deadband issues.
@@ -574,7 +582,8 @@ Why save the CSV? Because the CSV is the raw record of the bench test. It lets y
 - no repeated oscillation between high and low values
 - left and right wheels have similar response shape
 
-If the CSV shows this pattern, the values are likely usable. If the speed curve is jagged or the wheel overshoots at the same duty level every time, reduce `Kp` or `Ki` and repeat the sweep.
+If the CSV shows this pattern, the response data is usable. If the curve is
+jagged, repeat the sweep. `Kp` and `Ki` do not affect these raw-duty pulses.
 
 Do not save CSV files and then ignore them. Save them once per wheel, compare the curves, and use the same file to decide whether a new coefficient set improved or worsened the response.
 
