@@ -463,10 +463,19 @@ Do not assume both sides share the same values. The left and right drivetrains a
 
 ##### What each PID coefficient means
 
-Think of the controller as trying to fix the speed error:
+The isolated PI helper calculates:
 
-- `Kp` is the immediate response. It multiplies the current error, so if the wheel is slow, it adds more duty right away. Example: if the target is 300 mm/s and the wheel is only at 200 mm/s, the error is 100 mm/s. A `Kp` around 0.5 means the controller responds strongly enough to move the command toward the target but not so aggressively that it overshoots.
-- `Ki` is the slow accumulation of error. It keeps adding up the error over time, which helps when the wheel is consistently below target because of friction or load. Example: if the wheel is always 20 mm/s low, `Ki` keeps nudging the duty higher until the wheel catches up. Too much `Ki` makes the wheel hunt or oscillate.
+```text
+feedforward = target_mm_s * 1000 / DEFAULT_MAX_SPEED_MM_S
+command = feedforward + Kp * speed_error_mm_s
+                      + Ki * integral(speed_error_mm_s * seconds)
+```
+
+A zero target returns zero duty and clears the accumulated error. Output
+saturation also stops the integral from growing farther into the limit.
+
+- `Kp` is the immediate response in duty per mm/s of speed error. If the target is 300 mm/s and the wheel is at 200 mm/s, `Kp = 0.5` adds 50 duty.
+- `Ki` corrects persistent error using elapsed time, so its effect is independent of the 100 Hz sample rate. Too much `Ki` makes the wheel hunt or oscillate.
 - `Kd` reacts to how fast the error is changing. It is useful when the wheel suddenly speeds up or slows down and you want to damp the response. Example: if the wheel is accelerating too hard and overshooting, `Kd` pushes back. In this project, start with `Kd = 0.0f` unless the wheel clearly overshoots and oscillates even with a moderate `Kp` and `Ki`.
 
 A good rule is: `Kp` gives the first push, `Ki` fixes persistent under-speed, and `Kd` damps the correction. In this rover, start with `Kd = 0.0f` and tune it only if needed.

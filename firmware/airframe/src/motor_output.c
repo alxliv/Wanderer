@@ -68,36 +68,49 @@ motor_output_t motor_output_from_command(int16_t command, uint16_t max_pwm) {
 
 int16_t motor_command_apply_feedback(int16_t target_mm_s,
                                      int16_t measured_mm_s,
-                                     int16_t current_command,
                                      int16_t max_speed_mm_s,
-                                     float kp, float ki, float *integral) {
-    if (max_speed_mm_s <= 0) {
-        return current_command;
+                                     float dt_s, float kp, float ki,
+                                     float *integral) {
+    if (max_speed_mm_s <= 0 || target_mm_s == 0) {
+        if (integral) {
+            *integral = 0.0f;
+        }
+        return 0;
     }
 
-    int32_t target_permille = ((int32_t)target_mm_s * 1000) / max_speed_mm_s;
-    int32_t measured_permille = ((int32_t)measured_mm_s * 1000) / max_speed_mm_s;
-    int32_t error_permille = target_permille - measured_permille;
+    const int32_t feedforward =
+        ((int32_t)target_mm_s * 1000) / max_speed_mm_s;
+    const int32_t error_mm_s = (int32_t)target_mm_s - measured_mm_s;
+    const float old_integral = integral ? *integral : 0.0f;
+    float next_integral = old_integral;
 
-    if (integral) {
-        *integral += (float)error_permille;
-        if (*integral > 2000.0f) {
-            *integral = 2000.0f;
-        } else if (*integral < -2000.0f) {
-            *integral = -2000.0f;
+    if (integral && dt_s > 0.0f && ki > 0.0f) {
+        next_integral += (float)error_mm_s * dt_s;
+        if (next_integral > 2000.0f) {
+            next_integral = 2000.0f;
+        } else if (next_integral < -2000.0f) {
+            next_integral = -2000.0f;
         }
     }
 
-    float correction = (float)error_permille * kp;
+    float adjusted = (float)feedforward + (float)error_mm_s * kp
+                   + next_integral * ki;
+
+    /* Do not wind the integral farther into output saturation. */
+    if ((adjusted > (float)MOTOR_PWM_FULL_SCALE && error_mm_s > 0)
+            || (adjusted < -(float)MOTOR_PWM_FULL_SCALE && error_mm_s < 0)) {
+        next_integral = old_integral;
+        adjusted = (float)feedforward + (float)error_mm_s * kp
+                 + next_integral * ki;
+    }
     if (integral) {
-        correction += (*integral) * ki;
+        *integral = next_integral;
     }
 
-    int32_t adjusted = (int32_t)current_command + (int32_t)correction;
-    if (adjusted > 1000) {
-        adjusted = 1000;
-    } else if (adjusted < -1000) {
-        adjusted = -1000;
+    if (adjusted > (float)MOTOR_PWM_FULL_SCALE) {
+        adjusted = (float)MOTOR_PWM_FULL_SCALE;
+    } else if (adjusted < -(float)MOTOR_PWM_FULL_SCALE) {
+        adjusted = -(float)MOTOR_PWM_FULL_SCALE;
     }
     return (int16_t)adjusted;
 }

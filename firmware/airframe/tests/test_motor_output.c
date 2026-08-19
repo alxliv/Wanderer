@@ -70,20 +70,57 @@ int main(void) {
     /* An invalid limit above full scale must not increase the command duty. */
     expect_output(500, 2000, false, 500);
 
-    /* Speed feedback should trim the command toward the measured wheel speed. */
+    /* PI output is feed-forward plus a correction, not accumulated output. */
     float integral = 0.0f;
-    assert(motor_command_apply_feedback(600, 0, 0, 600, 0.5f, 0.1f, &integral)
-           == 600);
-    assert(integral == 1000.0f);
+    assert(motor_command_apply_feedback(300, 300, 600, 0.01f,
+                                        0.5f, 0.1f, &integral) == 500);
+    assert(integral == 0.0f);
 
-    integral = 0.0f;
-    assert(motor_command_apply_feedback(0, 600, 0, 600, 0.5f, 0.1f, &integral)
-           == -600);
-    assert(integral == -1000.0f);
+    assert(motor_command_apply_feedback(300, 200, 600, 0.01f,
+                                        0.5f, 0.1f, &integral) == 550);
+    assert(integral == 1.0f);
 
+    /* Forward and reverse corrections are symmetric. */
     integral = 0.0f;
-    assert(motor_command_apply_feedback(600, 0, 990, 600, 0.5f, 0.1f, &integral)
-           == 1000);
+    assert(motor_command_apply_feedback(-300, -200, 600, 0.01f,
+                                        0.5f, 0.1f, &integral) == -550);
+    assert(integral == -1.0f);
+
+    /* A stop never applies reverse braking and forgets retained error. */
+    integral = 123.0f;
+    assert(motor_command_apply_feedback(0, 600, 600, 0.01f,
+                                        0.5f, 0.1f, &integral) == 0);
+    assert(integral == 0.0f);
+
+    /* Saturation must not wind the integral farther into the limit. */
+    integral = 0.0f;
+    assert(motor_command_apply_feedback(600, 0, 600, 0.01f,
+                                        0.5f, 0.1f, &integral) == 1000);
+    assert(integral == 0.0f);
+
+    /* Integral state is elapsed-time based and has a finite bound. */
+    integral = 0.0f;
+    assert(motor_command_apply_feedback(100, 0, 600, 30.0f,
+                                        0.0f, 0.1f, &integral) == 366);
+    assert(integral == 2000.0f);
+
+    /* A motor-like lag settles without a command reversal. */
+    float speed_mm_s = 0.0f;
+    int16_t command = 0;
+    integral = 0.0f;
+    for (int tick = 0; tick < 200; ++tick) {
+        command = motor_command_apply_feedback(250, (int16_t)speed_mm_s,
+                                               600, 0.01f,
+                                               0.290f, 0.058f, &integral);
+        assert(command >= 0);
+        const float demanded_speed = 0.6f * command;
+        speed_mm_s += (demanded_speed - speed_mm_s) * 0.1f;
+    }
+    assert(speed_mm_s > 245.0f && speed_mm_s < 255.0f);
+    assert(motor_command_apply_feedback(0, (int16_t)speed_mm_s,
+                                        600, 0.01f,
+                                        0.290f, 0.058f, &integral) == 0);
+    assert(integral == 0.0f);
 
     puts("motor output tests passed");
     return 0;
