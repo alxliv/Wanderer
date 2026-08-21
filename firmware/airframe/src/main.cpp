@@ -29,11 +29,18 @@
 #include "encoder_math.h"
 #include "heading.h"
 #include "imu.h"
+#include "motor_output.h"
 #include "motors.h"
 
 static uint64_t now_us(void)
 {
     return to_us_since_boot(get_absolute_time());
+}
+
+static bool boot_led_blink(repeating_timer_t *)
+{
+    gpio_xor_mask(1u << PICO_DEFAULT_LED_PIN);
+    return true;
 }
 
 // ---- cockpit transport -----------------------------------------------------
@@ -153,6 +160,12 @@ int main(void)
 {
     stdio_init_all();          // USB CDC: bench logs only
 
+    gpio_init(PICO_DEFAULT_LED_PIN);
+    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+    gpio_put(PICO_DEFAULT_LED_PIN, true);
+    repeating_timer_t boot_led_timer;
+    add_repeating_timer_ms(-125, boot_led_blink, NULL, &boot_led_timer);
+
     pico2_uart_init();
     motors_init();
     encoders_init();
@@ -193,6 +206,9 @@ int main(void)
                         MOTOR_LEFT_SIGN, MOTOR_RIGHT_SIGN,
                         DEFAULT_TICKS_PER_METER, DEFAULT_MAX_SPEED_MM_S,
                         IMU_YAW_SIGN, IMU_SCALE);
+
+    cancel_repeating_timer(&boot_led_timer);
+    gpio_put(PICO_DEFAULT_LED_PIN, true);
 
     printf("*airframe fw %u.%u cockpit on pico2 uart0 @%u\r\n",
            FW_VERSION_MAJOR, FW_VERSION_MINOR, (unsigned)PICO2_UART_BAUD);

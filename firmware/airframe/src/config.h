@@ -46,8 +46,8 @@
 /* Motor DEADBAND */
 /* Measured 2026-08-15 with tools/backdoor.py, wheels
      raised and UNLOADED. Values are conservative observed breakaway duty. */
-#define MOTOR_DEADBAND_LEFT  80
-#define MOTOR_DEADBAND_RIGHT 40
+#define MOTOR_DEADBAND_LEFT  20
+#define MOTOR_DEADBAND_RIGHT 20
 /* Lowest duty at which BOTH wheels reliably turn: 80. Commands
      below this move nothing; feed-forward past it or refuse them. */
 
@@ -65,7 +65,7 @@
  * This is unloaded open-loop matching, not a substitute for wheel-speed PID.
  */
 #define MOTOR_LEFT_GAIN_PERMILLE   1000
-#define MOTOR_RIGHT_GAIN_PERMILLE   800
+#define MOTOR_RIGHT_GAIN_PERMILLE   878
 
 
 /* ---- Quadrature encoders (3.3 V logic; decoded via PIO) ----
@@ -123,11 +123,12 @@
  * chassis. Use the bench tuning procedure in motors_pid_calibration.md to
  * replace them with measured per-wheel settings.
  */
-#define MOTOR_LEFT_PID_KP        0.5f
-#define MOTOR_LEFT_PID_KI        0.1f
+#define MOTOR_LEFT_PID_KP        0.290f
+#define MOTOR_LEFT_PID_KI        0.058f
 #define MOTOR_LEFT_PID_KD        0.0f
-#define MOTOR_RIGHT_PID_KP       0.5f
-#define MOTOR_RIGHT_PID_KI       0.1f
+
+#define MOTOR_RIGHT_PID_KP       0.339f
+#define MOTOR_RIGHT_PID_KI       0.068f
 #define MOTOR_RIGHT_PID_KD       0.0f
 #define DEFAULT_MAX_PWM          1000      /* per-mille clamp (0..1000) */
 #define DEFAULT_MAX_SPEED_MM_S   600       /* open-loop full-scale; calibrate */
